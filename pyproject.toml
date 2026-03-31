@@ -1,7 +1,7 @@
 [project]
 name = "toy-agent"
 version = "0.1.0"
-description = "a toy agent for learn"
+description = "A minimal agent implementation to learn agent fundamentals. Python + OpenAI SDK"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
