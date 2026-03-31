@@ -9,6 +9,7 @@ from openai import OpenAI
 from src.toy_agent.agent import Agent
 from src.toy_agent.config import load_mcp_config
 from src.toy_agent.mcp import MCPClient
+from src.toy_agent.skills import load_skills
 from src.toy_agent.tools import TOOLS
 
 load_dotenv()
@@ -25,6 +26,9 @@ async def async_main():
 
     client = OpenAI(api_key=api_key, base_url=base_url)
 
+    # Load skills
+    skills = load_skills()
+
     # Load MCP servers from config
     config = load_mcp_config()
     mcp_client = MCPClient()
@@ -37,12 +41,14 @@ async def async_main():
     # Combine built-in tools + MCP tools
     all_tools = TOOLS + mcp_tools
     print(f"[tools] {len(all_tools)} tools loaded ({len(TOOLS)} built-in, {len(mcp_tools)} MCP)\n")
+    print(f"[skills] {len(skills)} skills loaded\n")
 
     agent = Agent(
         client=client,
         model=model,
         system="You are toy-agent, a helpful assistant. Use tools when needed.",
         tools=all_tools,
+        skills=skills,
     )
 
     print("Toy Agent - type 'quit' to exit\n")

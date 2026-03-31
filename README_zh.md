@@ -13,6 +13,7 @@ toy-agent/
 │   ├── agent.py                # Agent loop 核心
 │   ├── config.py               # 多级配置加载
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
+│   ├── skills.py              # Skills 加载器
 │   └── tools/
 │       ├── __init__.py          # @tool 装饰器 + 自动注册
 │       ├── file_ops.py          # read_file, write_file, edit_file
@@ -87,6 +88,30 @@ def read_file(path: str) -> str:
 }
 ```
 
+## Phase 4: Skills
+
+通过 Skill 扩展 Agent 的角色和专业知识。Skill 是包含 YAML frontmatter 的 markdown 文件，放在 skills 子目录中。
+
+**目录结构：**
+```
+.toy-agent/skills/
+└── code-review/
+    └── SKILL.md
+```
+
+**SKILL.md 格式：**
+```markdown
+---
+description: Expert at reviewing code changes and suggesting improvements
+---
+
+You are an expert code reviewer. When asked to review code...
+```
+
+- 目录名即为 skill 的 name
+- frontmatter 中的 description 告诉 LLM 何时调用此 skill
+- 多级目录加载（项目级覆盖用户级）
+
 ## 快速开始
 
 ```bash
@@ -111,6 +136,7 @@ make run
 |------|------|
 | `make run` | 启动 Agent |
 | `make mcp` | 启动 SSE 测试 MCP 服务器 |
+| `make test` | 运行单元测试 |
 | `make lint` | 运行 ruff 代码检查 |
 | `make fmt` | 格式化代码 |
 | `make check` | 运行 lint + 格式检查 |

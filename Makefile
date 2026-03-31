@@ -1,4 +1,4 @@
-.PHONY: lint fmt fmtcheck run mcp
+.PHONY: lint fmt fmtcheck run mcp test
 
 lint:
 	uv run ruff check src/ main.py tests/
@@ -16,3 +16,6 @@ run:
 
 mcp:
 	uv run python tests/mcp_sse_server.py
+
+test:
+	uv run pytest tests/

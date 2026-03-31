@@ -13,6 +13,7 @@ toy-agent/
 │   ├── agent.py                # Agent loop core
 │   ├── config.py               # Multi-level config loader
 │   ├── mcp.py                  # MCP client (stdio + SSE)
+│   ├── skills.py              # Skills loader
 │   └── tools/
 │       ├── __init__.py          # @tool decorator + auto-registry
 │       ├── file_ops.py          # read_file, write_file, edit_file
@@ -87,6 +88,30 @@ Config example:
 }
 ```
 
+## Phase 4: Skills
+
+Extend the agent with specialized roles and expertise via Skills. Each skill is a markdown file with YAML frontmatter, organized in subdirectories.
+
+**Directory structure:**
+```
+.toy-agent/skills/
+└── code-review/
+    └── SKILL.md
+```
+
+**SKILL.md format:**
+```markdown
+---
+description: Expert at reviewing code changes and suggesting improvements
+---
+
+You are an expert code reviewer. When asked to review code...
+```
+
+- Directory name = skill name
+- `description` in frontmatter tells the LLM when to invoke this skill
+- Multi-level loading (project overrides user)
+
 ## Getting Started
 
 ```bash
@@ -111,6 +136,7 @@ make run
 |---------|-------------|
 | `make run` | Start the agent |
 | `make mcp` | Start SSE test MCP server |
+| `make test` | Run unit tests |
 | `make lint` | Run ruff lint |
 | `make fmt` | Format code with ruff |
 | `make check` | Run lint + format check |
