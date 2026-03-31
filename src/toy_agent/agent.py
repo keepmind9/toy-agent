@@ -9,6 +9,8 @@ Agent Loop core flow:
 This is the essence of all Agent frameworks (LangChain, CrewAI, AutoGPT, etc.).
 """
 
+import asyncio
+import inspect
 import json
 from typing import Any
 
@@ -40,7 +42,7 @@ class Agent:
         )
         return f"{base}\n\nAvailable tools:\n{tool_list}"
 
-    def run(self, user_input: str) -> str:
+    async def run(self, user_input: str) -> str:
         """Run a complete agent loop and return the final answer."""
         self.messages.append({"role": "user", "content": user_input})
 
@@ -64,7 +66,7 @@ class Agent:
 
                 # 3. Execute each tool call
                 for tool_call in message.tool_calls:
-                    result = self._execute_tool(tool_call)
+                    result = await self._execute_tool(tool_call)
                     # Append tool result so LLM can see it in the next turn
                     self.messages.append({
                         "role": "tool",
@@ -79,7 +81,7 @@ class Agent:
             self.messages.append(message)
             return message.content
 
-    def _execute_tool(self, tool_call) -> Any:
+    async def _execute_tool(self, tool_call) -> Any:
         """Find and execute the corresponding tool function for a tool_call."""
         fn_name = tool_call.function.name
         fn_args = json.loads(tool_call.function.arguments)
@@ -87,6 +89,11 @@ class Agent:
         for tool in self.tools:
             if tool.schema["function"]["name"] == fn_name:
                 print(f"  [tool] {fn_name}({fn_args})")
-                return tool.fn(**fn_args)
+                try:
+                    if inspect.iscoroutinefunction(tool.fn):
+                        return await tool.fn(**fn_args)
+                    return tool.fn(**fn_args)
+                except Exception as e:
+                    return f"Error: tool '{fn_name}' failed: {e}"
 
         return f"Error: unknown tool '{fn_name}'"
