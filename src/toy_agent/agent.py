@@ -9,7 +9,6 @@ Agent Loop core flow:
 This is the essence of all Agent frameworks (LangChain, CrewAI, AutoGPT, etc.).
 """
 
-import asyncio
 import inspect
 import json
 from typing import Any
@@ -37,9 +36,7 @@ class Agent:
         """Build system prompt with tool descriptions appended dynamically."""
         if not self.tools:
             return base
-        tool_list = "\n".join(
-            f"- {t.name}: {t.schema['function']['description']}" for t in self.tools
-        )
+        tool_list = "\n".join(f"- {t.name}: {t.schema['function']['description']}" for t in self.tools)
         return f"{base}\n\nAvailable tools:\n{tool_list}"
 
     async def run(self, user_input: str) -> str:
@@ -68,11 +65,13 @@ class Agent:
                 for tool_call in message.tool_calls:
                     result = await self._execute_tool(tool_call)
                     # Append tool result so LLM can see it in the next turn
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": str(result),
-                    })
+                    self.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": str(result),
+                        }
+                    )
 
                 # Continue the loop, let LLM decide the next step based on tool results
                 continue

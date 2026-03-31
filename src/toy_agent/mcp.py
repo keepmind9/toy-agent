@@ -5,8 +5,6 @@ Tools from MCP servers are converted to our Tool format and
 registered alongside built-in tools.
 """
 
-import asyncio
-import json
 import os
 from typing import Any
 
@@ -79,7 +77,8 @@ class MCPClient:
                 "function": {
                     "name": tool_name,
                     "description": mcp_tool.description or "",
-                    "parameters": mcp_tool.inputSchema or {
+                    "parameters": mcp_tool.inputSchema
+                    or {
                         "type": "object",
                         "properties": {},
                     },
@@ -93,6 +92,7 @@ class MCPClient:
             def make_caller(tn: str, sn: str):
                 async def call_tool(**kwargs) -> str:
                     return await self._call_tool(sn, tn, kwargs)
+
                 return call_tool
 
             tools.append(Tool(schema=schema, fn=make_caller(tool_name, server_name)))

@@ -11,7 +11,6 @@ Usage:
 
 import importlib
 import inspect
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -63,7 +62,11 @@ def tool(description: str) -> Callable[..., Tool]:
 
         for name, param in params.items():
             type_name = type_map.get(
-                getattr(param.annotation, "__name__", "string") if param.annotation is not inspect.Parameter.empty else "string",
+                (
+                    getattr(param.annotation, "__name__", "string")
+                    if param.annotation is not inspect.Parameter.empty
+                    else "string"
+                ),
                 "string",
             )
             prop: dict[str, Any] = {"type": type_name}
