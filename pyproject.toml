@@ -1,0 +1,10 @@
+[project]
+name = "toy-agent"
+version = "0.1.0"
+description = "a toy agent for learn"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=2.30.0",
+    "python-dotenv>=1.0.0",
+]
