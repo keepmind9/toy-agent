@@ -10,10 +10,11 @@ This is the essence of all Agent frameworks (LangChain, CrewAI, AutoGPT, etc.).
 """
 
 import json
-from collections.abc import Callable
 from typing import Any
 
 from openai import APIError, OpenAI
+
+from src.toy_agent.tools import Tool
 
 
 class Agent:
@@ -22,11 +23,22 @@ class Agent:
         client: OpenAI,
         model: str = "gpt-4o-mini",
         system: str = "You are a helpful assistant.",
+        tools: list[Tool] | None = None,
     ):
         self.client = client
         self.model = model
-        self.system = system
-        self.messages: list[dict] = [{"role": "system", "content": system}]
+        self.tools = tools or []
+        self.system = self._build_system_prompt(system)
+        self.messages: list[dict] = [{"role": "system", "content": self.system}]
+
+    def _build_system_prompt(self, base: str) -> str:
+        """Build system prompt with tool descriptions appended dynamically."""
+        if not self.tools:
+            return base
+        tool_list = "\n".join(
+            f"- {t.name}: {t.schema['function']['description']}" for t in self.tools
+        )
+        return f"{base}\n\nAvailable tools:\n{tool_list}"
 
     def run(self, user_input: str) -> str:
         """Run a complete agent loop and return the final answer."""
@@ -39,6 +51,7 @@ class Agent:
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=self.messages,
+                    tools=[t.schema for t in self.tools] if self.tools else None,
                 )
             except APIError as e:
                 return f"[API Error] {e.status_code}: {e.message}"

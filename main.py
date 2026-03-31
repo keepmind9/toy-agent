@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from src.toy_agent.agent import Agent
+from src.toy_agent.tools import TOOLS
 
 load_dotenv()
 
@@ -24,10 +25,11 @@ def main():
     agent = Agent(
         client=client,
         model=model,
-        system="You are a helpful assistant.",
+        system="You are toy-agent, a helpful assistant. Use tools when needed.",
+        tools=TOOLS,
     )
 
-    print("Tiny Agent - type 'quit' to exit\n")
+    print("Toy Agent - type 'quit' to exit\n")
 
     while True:
         user_input = input("You: ").strip()
