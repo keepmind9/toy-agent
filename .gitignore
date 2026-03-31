@@ -12,5 +12,5 @@ wheels/
 .env*
 !.env.example
 
-.toy-agent
+.toy-agent/
 .ruff_cache
