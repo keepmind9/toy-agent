@@ -113,6 +113,7 @@ class Agent:
 
         # Built-in load_skill tool
         if fn_name == "load_skill":
+            print(f"  [tool] {fn_name}({fn_args})")
             name = fn_args.get("name", "")
             skill = get_skill(self.skills, name)
             if not skill:
