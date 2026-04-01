@@ -16,3 +16,9 @@ wheels/
 .ruff_cache
 
 HANDOFF.md
+tmp
+temp
+
+CLAUDE.md
+
+docs/plans

@@ -14,13 +14,17 @@ toy-agent/
 │   ├── config.py               # 多级配置加载
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
 │   ├── skills.py              # Skills 加载器
+│   ├── subagent.py            # SubAgentTool（Tool-call 模式）
 │   └── tools/
 │       ├── __init__.py          # @tool 装饰器 + 自动注册
 │       ├── file_ops.py          # read_file, write_file, edit_file
 │       └── run_bash.py          # run_bash (带安全检查)
 ├── tests/
 │   ├── mcp_stdio_server.py      # stdio MCP 测试服务器
-│   └── mcp_sse_server.py        # SSE MCP 测试服务器
+│   ├── mcp_sse_server.py        # SSE MCP 测试服务器
+│   ├── test_agent.py            # Agent 单元测试
+│   ├── test_skills.py           # Skills 加载器测试
+│   └── test_subagent.py         # SubAgentTool 测试
 ├── .env.example
 ├── .toy-agent/mcp.json          # MCP 服务器配置（不提交）
 ├── Makefile
@@ -111,6 +115,26 @@ You are an expert code reviewer. When asked to review code...
 - 目录名即为 skill 的 name
 - frontmatter 中的 description 告诉 LLM 何时调用此 skill
 - 多级目录加载（项目级覆盖用户级）
+
+## Phase 5: Subagent（子代理）
+
+通过 **Tool-call 模式** 将任务委派给专职子代理。每个子代理注册为一个 `Tool`，运行独立的 Agent Loop。
+
+```python
+from src.toy_agent.subagent import SubAgentTool
+
+researcher = SubAgentTool(
+    name="researcher",
+    description="Research a topic and return findings",
+    agent=Agent(client, model, system="You are a researcher..."),
+)
+
+agent = Agent(client, tools=[..., researcher])
+```
+
+- 每个子代理拥有完全独立的上下文（独立的 messages、tools、skills）
+- `max_turns` 安全限制防止无限循环（默认：10 轮）
+- 错误隔离 — 子代理的异常不会影响主 Agent
 
 ## 快速开始
 

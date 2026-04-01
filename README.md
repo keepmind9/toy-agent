@@ -14,13 +14,17 @@ toy-agent/
 │   ├── config.py               # Multi-level config loader
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── skills.py              # Skills loader
+│   ├── subagent.py            # SubAgentTool (tool-call pattern)
 │   └── tools/
 │       ├── __init__.py          # @tool decorator + auto-registry
 │       ├── file_ops.py          # read_file, write_file, edit_file
 │       └── run_bash.py          # run_bash (with safety checks)
 ├── tests/
 │   ├── mcp_stdio_server.py      # stdio MCP server for testing
-│   └── mcp_sse_server.py        # SSE MCP server for testing
+│   ├── mcp_sse_server.py        # SSE MCP server for testing
+│   ├── test_agent.py            # Agent unit tests
+│   ├── test_skills.py           # Skills loader tests
+│   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
 ├── .toy-agent/mcp.json          # MCP server config (not tracked)
 ├── Makefile
@@ -111,6 +115,26 @@ You are an expert code reviewer. When asked to review code...
 - Directory name = skill name
 - `description` in frontmatter tells the LLM when to invoke this skill
 - Multi-level loading (project overrides user)
+
+## Phase 5: Subagents
+
+Delegate tasks to specialized subagents via the **Tool-call pattern**. Each subagent registers as a `Tool` and runs an independent agent loop.
+
+```python
+from src.toy_agent.subagent import SubAgentTool
+
+researcher = SubAgentTool(
+    name="researcher",
+    description="Research a topic and return findings",
+    agent=Agent(client, model, system="You are a researcher..."),
+)
+
+agent = Agent(client, tools=[..., researcher])
+```
+
+- Each subagent has fully independent context (own messages, tools, skills)
+- `max_turns` safety limit prevents infinite loops (default: 10)
+- Errors are isolated — subagent failures don't crash the main agent
 
 ## Getting Started
 

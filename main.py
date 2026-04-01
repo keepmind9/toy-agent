@@ -10,6 +10,7 @@ from src.toy_agent.agent import Agent
 from src.toy_agent.config import load_mcp_config
 from src.toy_agent.mcp import MCPClient
 from src.toy_agent.skills import load_skills
+from src.toy_agent.subagent import SubAgentTool
 from src.toy_agent.tools import TOOLS
 
 load_dotenv()
@@ -38,9 +39,33 @@ async def async_main():
         print("[mcp] connecting to servers...")
         mcp_tools = await mcp_client.connect(config["mcpServers"])
 
-    # Combine built-in tools + MCP tools
-    all_tools = TOOLS + mcp_tools
-    print(f"[tools] {len(all_tools)} tools loaded ({len(TOOLS)} built-in, {len(mcp_tools)} MCP)\n")
+    # Regular tools (built-in + MCP) — shared with subagents
+    regular_tools = TOOLS + mcp_tools
+
+    # Create subagents (inherit regular tools + skills, exclude SubAgentTool to prevent nesting)
+    # TODO: Known issues with current subagent implementation:
+    #   1. LLM tends to call irrelevant tools/skills instead of answering directly.
+    #      Need better system prompts or stronger models.
+    #   2. No per-subagent tool/skill filtering — all subagents get the same set.
+    #      Ideally each subagent should only receive relevant tools/skills.
+    #   3. MCP tool calls may slow down subagent execution if the MCP server is unresponsive.
+    #   4. No result summarization — subagent returns raw output which can be very long.
+    researcher_agent = Agent(
+        client=client,
+        model=model,
+        system="You are a researcher. Analyze topics thoroughly and return concise findings.",
+        tools=regular_tools,
+        skills=skills,
+    )
+    researcher = SubAgentTool(
+        name="researcher",
+        description="Research a topic and return findings",
+        agent=researcher_agent,
+    )
+
+    # All tools for main agent
+    all_tools = regular_tools + [researcher]
+    print(f"[tools] {len(all_tools)} tools loaded ({len(TOOLS)} built-in, {len(mcp_tools)} MCP, 1 subagent)\n")
     print(f"[skills] {len(skills)} skills loaded\n")
 
     agent = Agent(

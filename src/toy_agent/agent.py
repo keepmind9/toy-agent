@@ -36,12 +36,21 @@ class Agent:
         self.messages: list[dict] = [{"role": "system", "content": self.system}]
 
     def _build_system_prompt(self, base: str) -> str:
-        """Build system prompt with tool list and skill list (no content)."""
+        """Build system prompt with tool list, subagent list, and skill list."""
+        from src.toy_agent.subagent import SubAgentTool
+
         parts = [base]
 
-        if self.tools:
-            tool_list = "\n".join(f"- {t.name}: {t.schema['function']['description']}" for t in self.tools)
+        regular_tools = [t for t in self.tools if not isinstance(t, SubAgentTool)]
+        subagent_tools = [t for t in self.tools if isinstance(t, SubAgentTool)]
+
+        if regular_tools:
+            tool_list = "\n".join(f"- {t.name}: {t.schema['function']['description']}" for t in regular_tools)
             parts.append(f"Available tools:\n{tool_list}")
+
+        if subagent_tools:
+            sub_list = "\n".join(f"- {t.name}: {t.schema['function']['description']}" for t in subagent_tools)
+            parts.append(f"Available subagents (call as tools to delegate tasks):\n{sub_list}")
 
         if self.skills:
             skill_list = "\n".join(f"- {s.name}: {s.description}" for s in self.skills)
@@ -73,11 +82,22 @@ class Agent:
         ]
         return built_in + [t.schema for t in self.tools]
 
-    async def run(self, user_input: str) -> str:
-        """Run a complete agent loop and return the final answer."""
+    async def run(self, user_input: str, *, max_turns: int | None = None) -> str:
+        """Run a complete agent loop and return the final answer.
+
+        Args:
+            user_input: The user message to send.
+            max_turns: Maximum number of LLM API calls. If exceeded, returns an error.
+                       None means no limit (runs until LLM stops calling tools).
+        """
         self.messages.append({"role": "user", "content": user_input})
 
+        turn = 0
         while True:
+            turn += 1
+            if max_turns is not None and turn > max_turns:
+                return f"[Error] Exceeded max turns ({max_turns})"
+
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
