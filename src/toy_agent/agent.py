@@ -11,6 +11,7 @@ This is the essence of all Agent frameworks (LangChain, CrewAI, AutoGPT, etc.).
 
 import inspect
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from openai import APIError, OpenAI
@@ -27,11 +28,13 @@ class Agent:
         system: str = "You are a helpful assistant.",
         tools: list[Tool] | None = None,
         skills: list[Skill] | None = None,
+        stream: bool = False,
     ):
         self.client = client
         self.model = model
         self.tools = tools or []
         self.skills = skills or []
+        self.stream = stream
         self.system = self._build_system_prompt(system)
         self.messages: list[dict] = [{"role": "system", "content": self.system}]
 
@@ -82,14 +85,16 @@ class Agent:
         ]
         return built_in + [t.schema for t in self.tools]
 
-    async def run(self, user_input: str, *, max_turns: int | None = None) -> str:
+    async def run(self, user_input: str, *, max_turns: int | None = None, stream: bool | None = None) -> str:
         """Run a complete agent loop and return the final answer.
 
         Args:
             user_input: The user message to send.
             max_turns: Maximum number of LLM API calls. If exceeded, returns an error.
                        None means no limit (runs until LLM stops calling tools).
+            stream: Override streaming mode. If None, uses self.stream from constructor.
         """
+        use_stream = stream if stream is not None else self.stream
         self.messages.append({"role": "user", "content": user_input})
 
         turn = 0
@@ -103,16 +108,38 @@ class Agent:
                     model=self.model,
                     messages=self.messages,
                     tools=self._all_tool_schemas or None,
+                    stream=use_stream,
                 )
             except APIError as e:
                 return f"[API Error] {e.status_code}: {e.message}"
+
+            if use_stream:
+                return await self._process_stream(response, max_turns=max_turns, turn=turn)
+
             message = response.choices[0].message
 
             if message.tool_calls:
-                self.messages.append(message)
+                self.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                },
+                            }
+                            for tc in message.tool_calls
+                        ],
+                    }
+                )
 
                 for tool_call in message.tool_calls:
-                    result = await self._execute_tool(tool_call)
+                    fn_args = json.loads(tool_call.function.arguments)
+                    result = await self._execute_tool(tool_call.function.name, fn_args)
                     self.messages.append(
                         {
                             "role": "tool",
@@ -123,14 +150,11 @@ class Agent:
 
                 continue
 
-            self.messages.append(message)
+            self.messages.append({"role": "assistant", "content": message.content})
             return message.content
 
-    async def _execute_tool(self, tool_call) -> Any:
-        """Find and execute the corresponding tool function for a tool_call."""
-        fn_name = tool_call.function.name
-        fn_args = json.loads(tool_call.function.arguments)
-
+    async def _execute_tool(self, fn_name: str, fn_args: dict) -> Any:
+        """Find and execute the corresponding tool function."""
         # Built-in load_skill tool
         if fn_name == "load_skill":
             print(f"  [tool] {fn_name}({fn_args})")
@@ -152,3 +176,76 @@ class Agent:
                     return f"Error: tool '{fn_name}' failed: {e}"
 
         return f"Error: unknown tool '{fn_name}'"
+
+    async def _process_stream(self, stream, *, max_turns: int | None, turn: int) -> str:
+        """Process a streaming response. Print tokens, handle tool calls."""
+        collected_content = ""
+        tool_calls_data: dict[int, dict] = {}
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+
+            # Collect text content
+            if delta.content:
+                collected_content += delta.content
+                print(delta.content, end="", flush=True)
+
+            # Collect tool call data
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_data:
+                        tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc.id:
+                        tool_calls_data[idx]["id"] += tc.id
+                    if tc.function.name:
+                        tool_calls_data[idx]["name"] += tc.function.name
+                    if tc.function.arguments:
+                        tool_calls_data[idx]["arguments"] += tc.function.arguments
+
+        print()  # newline after streamed output
+
+        # If there are tool calls, execute them and continue the loop
+        if tool_calls_data:
+            message_dict = {
+                "role": "assistant",
+                "content": collected_content or None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"],
+                        },
+                    }
+                    for tc in tool_calls_data.values()
+                ],
+            }
+            self.messages.append(message_dict)
+
+            for tc in tool_calls_data.values():
+                fn_args = json.loads(tc["arguments"])
+                result = await self._execute_tool(tc["name"], fn_args)
+                self.messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
+
+            # Continue — get next response (recursive call)
+            turn += 1
+            if max_turns is not None and turn > max_turns:
+                return f"[Error] Exceeded max turns ({max_turns})"
+
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.messages,
+                    tools=self._all_tool_schemas or None,
+                    stream=True,
+                )
+            except APIError as e:
+                return f"[API Error] {e.status_code}: {e.message}"
+
+            return await self._process_stream(response, max_turns=max_turns, turn=turn)
+
+        # No tool calls — final answer
+        self.messages.append({"role": "assistant", "content": collected_content})
+        return collected_content

@@ -68,14 +68,18 @@ async def async_main():
     print(f"[tools] {len(all_tools)} tools loaded ({len(TOOLS)} built-in, {len(mcp_tools)} MCP, 1 subagent)\n")
     print(f"[skills] {len(skills)} skills loaded\n")
 
+    stream = os.getenv("TOY_AGENT_STREAM", "true").lower() in ("true", "1", "yes")
+
     agent = Agent(
         client=client,
         model=model,
         system="You are toy-agent, a helpful assistant. Use tools when needed.",
         tools=all_tools,
         skills=skills,
+        stream=stream,
     )
 
+    print(f"[stream] {'on' if stream else 'off'}")
     print("Toy Agent - type 'quit' to exit\n")
 
     try:
@@ -86,8 +90,14 @@ async def async_main():
             if not user_input:
                 continue
 
-            response = await agent.run(user_input)
-            print(f"Agent: {response}\n")
+            if stream:
+                print("Agent: ", end="", flush=True)
+                response = await agent.run(user_input)
+                print()  # extra newline after streaming output
+            else:
+                response = await agent.run(user_input)
+                print(f"Agent: {response}")
+            print()
     finally:
         await mcp_client.cleanup()
 

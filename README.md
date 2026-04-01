@@ -136,6 +136,22 @@ agent = Agent(client, tools=[..., researcher])
 - `max_turns` safety limit prevents infinite loops (default: 10)
 - Errors are isolated — subagent failures don't crash the main agent
 
+## Phase 6: Streaming
+
+Real-time token output via configurable streaming mode.
+
+```python
+# Enable via constructor
+agent = Agent(client, stream=True)
+
+# Or per-call override
+result = await agent.run("hello", stream=True)
+```
+
+- Set `TOY_AGENT_STREAM=true` in `.env` to enable (default: true)
+- Tool calls pause streaming, resume after execution
+- Subagents always use non-streaming internally
+
 ## Getting Started
 
 ```bash

@@ -136,6 +136,22 @@ agent = Agent(client, tools=[..., researcher])
 - `max_turns` 安全限制防止无限循环（默认：10 轮）
 - 错误隔离 — 子代理的异常不会影响主 Agent
 
+## Phase 6: Streaming（流式输出）
+
+通过可配置的流式模式实现实时 token 输出。
+
+```python
+# 构造函数启用
+agent = Agent(client, stream=True)
+
+# 或单次调用覆盖
+result = await agent.run("hello", stream=True)
+```
+
+- 在 `.env` 中设置 `TOY_AGENT_STREAM=true` 启用（默认：true）
+- 工具调用时暂停流式，执行完后恢复
+- Subagent 内部始终使用非流式
+
 ## 快速开始
 
 ```bash

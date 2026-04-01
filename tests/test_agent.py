@@ -114,3 +114,48 @@ class TestSubagentInSystemPrompt:
         assert "Available subagents" in system
         assert "read_file" in system
         assert "researcher" in system
+
+
+class TestStreamConfig:
+    def test_default_stream_is_false(self):
+        client = MagicMock()
+        agent = Agent(client=client)
+        assert agent.stream is False
+
+    def test_stream_from_constructor(self):
+        client = MagicMock()
+        agent = Agent(client=client, stream=True)
+        assert agent.stream is True
+
+
+class TestStreamingRun:
+    @pytest.mark.anyio
+    async def test_stream_prints_tokens(self, capsys):
+        """Streaming mode should print tokens to stdout."""
+        client = MagicMock()
+
+        chunk1 = MagicMock()
+        chunk1.choices = [MagicMock()]
+        chunk1.choices[0].delta.content = "Hello"
+        chunk1.choices[0].delta.tool_calls = None
+
+        chunk2 = MagicMock()
+        chunk2.choices = [MagicMock()]
+        chunk2.choices[0].delta.content = " world"
+        chunk2.choices[0].delta.tool_calls = None
+
+        chunk3 = MagicMock()
+        chunk3.choices = [MagicMock()]
+        chunk3.choices[0].delta.content = None
+        chunk3.choices[0].delta.tool_calls = None
+        chunk3.choices[0].finish_reason = "stop"
+
+        client.chat.completions.create.return_value = iter([chunk1, chunk2, chunk3])
+
+        agent = Agent(client=client, stream=True)
+        result = await agent.run("hi")
+
+        captured = capsys.readouterr()
+        assert "Hello" in captured.out
+        assert "world" in captured.out
+        assert result == "Hello world"
