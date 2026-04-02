@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from toy_agent.agent import Agent
+from toy_agent.context import ContextCompressor
 from toy_agent.memory import SessionMemory
 from toy_agent.subagent import SubAgentTool
-from toy_agent.context import ContextCompressor
 
 
 def _make_tool_call_response(tool_call_id="tc_1", fn_name="test_tool", fn_args="{}"):
