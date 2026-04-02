@@ -13,6 +13,7 @@ toy-agent/
 │   ├── agent.py                # Agent loop core
 │   ├── config.py               # Multi-level config loader
 │   ├── mcp.py                  # MCP client (stdio + SSE)
+│   ├── memory.py               # Session persistence
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
 │   └── tools/
@@ -23,6 +24,7 @@ toy-agent/
 │   ├── mcp_stdio_server.py      # stdio MCP server for testing
 │   ├── mcp_sse_server.py        # SSE MCP server for testing
 │   ├── test_agent.py            # Agent unit tests
+│   ├── test_memory.py           # SessionMemory tests
 │   ├── test_skills.py           # Skills loader tests
 │   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
@@ -151,6 +153,30 @@ result = await agent.run("hello", stream=True)
 - Set `TOY_AGENT_STREAM=true` in `.env` to enable (default: true)
 - Tool calls pause streaming, resume after execution
 - Subagents always use non-streaming internally
+
+## Phase 7: Memory / Session Restore
+
+Persistent conversation history across restarts. Each session is a JSONL file (one message per line, append-only), and can be restored on next launch.
+
+```
+~/.toy-agent/
+├── mcp.json
+└── <project_hash>/sessions/
+    ├── 2026-04-02_143052.jsonl
+    └── 2026-04-03_091530.jsonl
+```
+
+- Auto-save after each turn (append-only), auto-cleanup keeps the latest 10 sessions
+- Per-project isolation via path hash
+- REPL commands: `/resume`, `/resume <id>`, `/sessions`
+
+```python
+from src.toy_agent.memory import SessionMemory
+
+memory = SessionMemory(project_path="/my/project")
+memory.save(messages)  # append new messages since last save
+restored = memory.load_latest()
+```
 
 ## Getting Started
 

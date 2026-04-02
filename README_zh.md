@@ -13,6 +13,7 @@ toy-agent/
 │   ├── agent.py                # Agent loop 核心
 │   ├── config.py               # 多级配置加载
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
+│   ├── memory.py               # 会话持久化
 │   ├── skills.py              # Skills 加载器
 │   ├── subagent.py            # SubAgentTool（Tool-call 模式）
 │   └── tools/
@@ -23,6 +24,7 @@ toy-agent/
 │   ├── mcp_stdio_server.py      # stdio MCP 测试服务器
 │   ├── mcp_sse_server.py        # SSE MCP 测试服务器
 │   ├── test_agent.py            # Agent 单元测试
+│   ├── test_memory.py           # SessionMemory 测试
 │   ├── test_skills.py           # Skills 加载器测试
 │   └── test_subagent.py         # SubAgentTool 测试
 ├── .env.example
@@ -151,6 +153,30 @@ result = await agent.run("hello", stream=True)
 - 在 `.env` 中设置 `TOY_AGENT_STREAM=true` 启用（默认：true）
 - 工具调用时暂停流式，执行完后恢复
 - Subagent 内部始终使用非流式
+
+## Phase 7: Memory / 会话恢复
+
+跨重启的持久对话历史。每次会话保存为 JSONL 文件（每行一条消息，追加写入），下次启动时可恢复。
+
+```
+~/.toy-agent/
+├── mcp.json
+└── <project_hash>/sessions/
+    ├── 2026-04-02_143052.jsonl
+    └── 2026-04-03_091530.jsonl
+```
+
+- 每轮对话后追加保存（append-only），自动清理保留最近 10 个会话
+- 按项目路径 hash 隔离，多项目互不干扰
+- REPL 命令：`/resume`、`/resume <id>`、`/sessions`
+
+```python
+from src.toy_agent.memory import SessionMemory
+
+memory = SessionMemory(project_path="/my/project")
+memory.save(messages)  # 追加上次 save 之后的新消息
+restored = memory.load_latest()
+```
 
 ## 快速开始
 
