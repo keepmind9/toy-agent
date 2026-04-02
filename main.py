@@ -9,6 +9,7 @@ from openai import OpenAI
 from src.toy_agent.agent import Agent
 from src.toy_agent.config import load_mcp_config
 from src.toy_agent.mcp import MCPClient
+from src.toy_agent.memory import SessionMemory
 from src.toy_agent.skills import load_skills
 from src.toy_agent.subagent import SubAgentTool
 from src.toy_agent.tools import TOOLS
@@ -79,26 +80,61 @@ async def async_main():
         stream=stream,
     )
 
+    # Session memory
+    memory = SessionMemory(project_path=os.getcwd())
+    agent.memory = memory
+
     print(f"[stream] {'on' if stream else 'off'}")
     print("Toy Agent - type 'quit' to exit\n")
 
     try:
         while True:
             user_input = input("You: ").strip()
-            if user_input.lower() in ("quit", "exit"):
+            if user_input.lower() in ("quit", "exit", "/quit", "/exit", ):
                 break
             if not user_input:
+                continue
+
+            # Session commands
+            if user_input == "/resume":
+                msgs = memory.load_latest()
+                if msgs:
+                    agent.messages = msgs
+                    print(f"[memory] Restored session ({len(msgs)} messages)\n")
+                else:
+                    print("[memory] No sessions to restore\n")
+                continue
+
+            if user_input.startswith("/resume "):
+                session_id = user_input[len("/resume "):].strip()
+                msgs = memory.load(session_id)
+                if msgs:
+                    agent.messages = msgs
+                    print(f"[memory] Restored session {session_id} ({len(msgs)} messages)\n")
+                else:
+                    print(f"[memory] Session '{session_id}' not found\n")
+                continue
+
+            if user_input == "/sessions":
+                sessions = memory.list_sessions()
+                if not sessions:
+                    print("[memory] No saved sessions\n")
+                else:
+                    for s in sessions:
+                        print(f"  {s.session_id}  {s.created_at}")
+                    print()
                 continue
 
             if stream:
                 print("Agent: ", end="", flush=True)
                 response = await agent.run(user_input)
-                print()  # extra newline after streaming output
+                print()
             else:
                 response = await agent.run(user_input)
                 print(f"Agent: {response}")
             print()
     finally:
+        memory.cleanup(max_sessions=10)
         await mcp_client.cleanup()
 
 
