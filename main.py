@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import readline  # noqa: F401  # side-effect: enables readline features in input()
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -16,6 +17,28 @@ from toy_agent.subagent import SubAgentTool
 from toy_agent.tools import TOOLS
 
 load_dotenv()
+
+# Configure readline for command history and cursor navigation.
+# This makes input() support:
+#   - Up/Down arrows: navigate command history
+#   - Left/Right arrows: move cursor within the line
+#   - Ctrl+A/E: jump to start/end of line
+#   - Ctrl+U/K: clear line before/after cursor
+_readline_history: list[str] = []
+
+
+def _get_input(prompt: str) -> str:
+    """Wrapper around input() with readline history support."""
+    try:
+        line = input(prompt)
+        if line.strip():
+            _readline_history.append(line)
+            # Keep history bounded to avoid unbounded memory growth
+            if len(_readline_history) > 100:
+                _readline_history.pop(0)
+        return line
+    except (KeyboardInterrupt, EOFError):
+        raise KeyboardInterrupt
 
 
 async def async_main():
@@ -95,7 +118,11 @@ async def async_main():
 
     try:
         while True:
-            user_input = input("You: ").strip()
+            try:
+                user_input = _get_input("You: ").strip()
+            except KeyboardInterrupt:
+                print()  # clean up terminal line
+                continue
             if user_input.lower() in (
                 "quit",
                 "exit",
