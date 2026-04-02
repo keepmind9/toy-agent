@@ -9,7 +9,7 @@ A minimal agent implementation for learning agent fundamentals. Built with Pytho
 ```
 toy-agent/
 ├── main.py                     # Entry point
-├── src/toy_agent/
+├── toy_agent/
 │   ├── agent.py                # Agent loop core
 │   ├── config.py               # Multi-level config loader
 │   ├── mcp.py                  # MCP client (stdio + SSE)
@@ -49,7 +49,7 @@ API errors are caught and displayed without crashing the session.
 A `@tool` decorator that auto-generates OpenAI function calling schema from Python type hints and docstrings:
 
 ```python
-from src.toy_agent.tools import tool
+from toy_agent.tools import tool
 
 @tool(description="Read the content of a file")
 def read_file(path: str) -> str:
@@ -123,7 +123,7 @@ You are an expert code reviewer. When asked to review code...
 Delegate tasks to specialized subagents via the **Tool-call pattern**. Each subagent registers as a `Tool` and runs an independent agent loop.
 
 ```python
-from src.toy_agent.subagent import SubAgentTool
+from toy_agent.subagent import SubAgentTool
 
 researcher = SubAgentTool(
     name="researcher",
@@ -171,7 +171,7 @@ Persistent conversation history across restarts. Each session is a JSONL file (o
 - REPL commands: `/resume`, `/resume <id>`, `/sessions`
 
 ```python
-from src.toy_agent.memory import SessionMemory
+from toy_agent.memory import SessionMemory
 
 memory = SessionMemory(project_path="/my/project")
 memory.save(messages)  # append new messages since last save

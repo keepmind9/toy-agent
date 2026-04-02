@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.toy_agent.agent import Agent
-from src.toy_agent.memory import SessionMemory
-from src.toy_agent.subagent import SubAgentTool
+from toy_agent.agent import Agent
+from toy_agent.memory import SessionMemory
+from toy_agent.subagent import SubAgentTool
 
 
 def _make_tool_call_response(tool_call_id="tc_1", fn_name="test_tool", fn_args="{}"):

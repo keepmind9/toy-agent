@@ -9,7 +9,7 @@
 ```
 toy-agent/
 ├── main.py                     # 入口
-├── src/toy_agent/
+├── toy_agent/
 │   ├── agent.py                # Agent loop 核心
 │   ├── config.py               # 多级配置加载
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
@@ -49,7 +49,7 @@ API 错误会被捕获并展示给用户，不会导致程序崩溃。
 `@tool` 装饰器根据 Python 类型标注和 docstring 自动生成 OpenAI function calling schema：
 
 ```python
-from src.toy_agent.tools import tool
+from toy_agent.tools import tool
 
 @tool(description="Read the content of a file")
 def read_file(path: str) -> str:
@@ -123,7 +123,7 @@ You are an expert code reviewer. When asked to review code...
 通过 **Tool-call 模式** 将任务委派给专职子代理。每个子代理注册为一个 `Tool`，运行独立的 Agent Loop。
 
 ```python
-from src.toy_agent.subagent import SubAgentTool
+from toy_agent.subagent import SubAgentTool
 
 researcher = SubAgentTool(
     name="researcher",
@@ -171,7 +171,7 @@ result = await agent.run("hello", stream=True)
 - REPL 命令：`/resume`、`/resume <id>`、`/sessions`
 
 ```python
-from src.toy_agent.memory import SessionMemory
+from toy_agent.memory import SessionMemory
 
 memory = SessionMemory(project_path="/my/project")
 memory.save(messages)  # 追加上次 save 之后的新消息

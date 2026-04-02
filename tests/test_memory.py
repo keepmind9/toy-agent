@@ -3,9 +3,7 @@
 import json
 from pathlib import Path
 
-import pytest
-
-from src.toy_agent.memory import SessionMemory, SessionMeta
+from toy_agent.memory import SessionMemory
 
 
 class TestSessionMemorySaveLoad:
@@ -42,9 +40,7 @@ class TestSessionMemorySaveLoad:
         """Multiple save() calls should append new messages, not rewrite."""
         memory = SessionMemory(project_path="/fake/project", base_dir=tmp_path)
         filepath1 = memory.save([{"role": "user", "content": "turn 1"}])
-        filepath2 = memory.save(
-            [{"role": "user", "content": "turn 1"}, {"role": "assistant", "content": "reply 1"}]
-        )
+        filepath2 = memory.save([{"role": "user", "content": "turn 1"}, {"role": "assistant", "content": "reply 1"}])
 
         # Same file
         assert filepath1 == filepath2

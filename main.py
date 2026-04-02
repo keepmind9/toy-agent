@@ -6,13 +6,13 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from src.toy_agent.agent import Agent
-from src.toy_agent.config import load_mcp_config
-from src.toy_agent.mcp import MCPClient
-from src.toy_agent.memory import SessionMemory
-from src.toy_agent.skills import load_skills
-from src.toy_agent.subagent import SubAgentTool
-from src.toy_agent.tools import TOOLS
+from toy_agent.agent import Agent
+from toy_agent.config import load_mcp_config
+from toy_agent.mcp import MCPClient
+from toy_agent.memory import SessionMemory
+from toy_agent.skills import load_skills
+from toy_agent.subagent import SubAgentTool
+from toy_agent.tools import TOOLS
 
 load_dotenv()
 
@@ -90,7 +90,12 @@ async def async_main():
     try:
         while True:
             user_input = input("You: ").strip()
-            if user_input.lower() in ("quit", "exit", "/quit", "/exit", ):
+            if user_input.lower() in (
+                "quit",
+                "exit",
+                "/quit",
+                "/exit",
+            ):
                 break
             if not user_input:
                 continue
@@ -106,7 +111,7 @@ async def async_main():
                 continue
 
             if user_input.startswith("/resume "):
-                session_id = user_input[len("/resume "):].strip()
+                session_id = user_input[len("/resume ") :].strip()
                 msgs = memory.load(session_id)
                 if msgs:
                     agent.messages = msgs
