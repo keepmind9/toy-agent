@@ -7,6 +7,7 @@ import pytest
 from toy_agent.agent import Agent
 from toy_agent.memory import SessionMemory
 from toy_agent.subagent import SubAgentTool
+from toy_agent.context import ContextCompressor
 
 
 def _make_tool_call_response(tool_call_id="tc_1", fn_name="test_tool", fn_args="{}"):
@@ -190,3 +191,32 @@ class TestAgentMemory:
 
         assert result == "no memory"
         assert agent.memory is None
+
+
+class TestAgentCompressor:
+    @pytest.mark.anyio
+    async def test_agent_compresses_before_api_call(self, tmp_path):
+        """Agent should call compressor.compress() before sending to LLM."""
+        client = MagicMock()
+        response = _make_text_response("compressed!")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        compressor = ContextCompressor(client=client, model="gpt-4o-mini", token_limit=100000)
+        compressor.compress = MagicMock(side_effect=lambda msgs: msgs)
+
+        agent = Agent(client=client, compressor=compressor)
+        await agent.run("test")
+
+        assert compressor.compress.called
+
+    @pytest.mark.anyio
+    async def test_agent_no_compressor_works_as_before(self):
+        """Agent without compressor should work exactly as before."""
+        client = MagicMock()
+        response = _make_text_response("no compressor")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        agent = Agent(client=client)
+        result = await agent.run("test")
+
+        assert result == "no compressor"

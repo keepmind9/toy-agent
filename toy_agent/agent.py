@@ -22,6 +22,7 @@ from toy_agent.tools import Tool
 
 if TYPE_CHECKING:
     from toy_agent.memory import SessionMemory
+    from toy_agent.context import ContextCompressor
 
 
 class Agent:
@@ -34,6 +35,7 @@ class Agent:
         skills: list[Skill] | None = None,
         stream: bool = False,
         memory: SessionMemory | None = None,
+        compressor: ContextCompressor | None = None,
     ):
         self.client = client
         self.model = model
@@ -41,6 +43,7 @@ class Agent:
         self.skills = skills or []
         self.stream = stream
         self.memory = memory
+        self.compressor = compressor
         self.system = self._build_system_prompt(system)
         self.messages: list[dict] = [{"role": "system", "content": self.system}]
 
@@ -102,6 +105,9 @@ class Agent:
         """
         use_stream = stream if stream is not None else self.stream
         self.messages.append({"role": "user", "content": user_input})
+
+        if self.compressor:
+            self.messages = self.compressor.compress(self.messages)
 
         turn = 0
         while True:
