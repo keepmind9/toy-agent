@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.toy_agent.skills import _parse_frontmatter, _parse_skill, load_skills
+from toy_agent.skills import _parse_frontmatter, _parse_skill, load_skills
 
 
 class TestParseSkill:
@@ -76,7 +76,7 @@ class TestLoadSkillsDir:
         (tmp_path / "readme.md").write_text("Not a skill")
         (tmp_path / "other.md").write_text("---\nname: other\n---\nX")
 
-        from src.toy_agent.skills import _load_skills_dir
+        from toy_agent.skills import _load_skills_dir
 
         skills = _load_skills_dir(tmp_path)
 

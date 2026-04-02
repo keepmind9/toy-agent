@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.toy_agent.subagent import SubAgentTool
+from toy_agent.subagent import SubAgentTool
 
 
 class TestSubAgentToolSchema:
