@@ -15,11 +15,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Set up Python
-        run: uv python install 3.12
-
       - name: Install dependencies
-        run: uv sync
+        run: uv sync && uv pip install -e .
 
       - name: Lint
         run: uv run ruff check toy_agent/ main.py tests/
