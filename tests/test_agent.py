@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.toy_agent.agent import Agent
+from src.toy_agent.memory import SessionMemory
 from src.toy_agent.subagent import SubAgentTool
 
 
@@ -159,3 +160,33 @@ class TestStreamingRun:
         assert "Hello" in captured.out
         assert "world" in captured.out
         assert result == "Hello world"
+
+
+class TestAgentMemory:
+    @pytest.mark.anyio
+    async def test_agent_saves_after_run(self, tmp_path):
+        """Agent should call memory.save() after each run."""
+        client = MagicMock()
+        response = _make_text_response("saved!")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        memory = SessionMemory(project_path="/test/project", base_dir=tmp_path)
+        agent = Agent(client=client, memory=memory)
+
+        await agent.run("hello")
+
+        sessions = memory.list_sessions()
+        assert len(sessions) == 1
+
+    @pytest.mark.anyio
+    async def test_agent_no_memory_works_as_before(self):
+        """Agent without memory should work exactly as before."""
+        client = MagicMock()
+        response = _make_text_response("no memory")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        agent = Agent(client=client)
+        result = await agent.run("test")
+
+        assert result == "no memory"
+        assert agent.memory is None

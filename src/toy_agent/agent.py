@@ -9,15 +9,20 @@ Agent Loop core flow:
 This is the essence of all Agent frameworks (LangChain, CrewAI, AutoGPT, etc.).
 """
 
+from __future__ import annotations
+
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openai import APIError, OpenAI
 
 from src.toy_agent.skills import Skill, get_skill
 from src.toy_agent.tools import Tool
+
+if TYPE_CHECKING:
+    from src.toy_agent.memory import SessionMemory
 
 
 class Agent:
@@ -29,12 +34,14 @@ class Agent:
         tools: list[Tool] | None = None,
         skills: list[Skill] | None = None,
         stream: bool = False,
+        memory: SessionMemory | None = None,
     ):
         self.client = client
         self.model = model
         self.tools = tools or []
         self.skills = skills or []
         self.stream = stream
+        self.memory = memory
         self.system = self._build_system_prompt(system)
         self.messages: list[dict] = [{"role": "system", "content": self.system}]
 
@@ -151,6 +158,8 @@ class Agent:
                 continue
 
             self.messages.append({"role": "assistant", "content": message.content})
+            if self.memory:
+                self.memory.save(self.messages)
             return message.content
 
     async def _execute_tool(self, fn_name: str, fn_args: dict) -> Any:
@@ -248,4 +257,6 @@ class Agent:
 
         # No tool calls — final answer
         self.messages.append({"role": "assistant", "content": collected_content})
+        if self.memory:
+            self.memory.save(self.messages)
         return collected_content
