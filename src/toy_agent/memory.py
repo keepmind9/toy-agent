@@ -14,14 +14,15 @@ class SessionMeta:
 
     session_id: str  # filename without extension, e.g. "2026-04-02_143052"
     created_at: str  # ISO format timestamp
-    message_count: int  # number of messages in the session
 
 
 class SessionMemory:
     """Manages session persistence for an agent.
 
-    Sessions are stored as JSON files under <base_dir>/<project_hash>/sessions/.
-    Each session is a timestamped file containing the full message history.
+    Sessions are stored as JSONL files under <base_dir>/<project_hash>/sessions/.
+    Each session is a timestamped .jsonl file where:
+      - Line 1: session metadata (version, created_at, project_path)
+      - Lines 2+: one message per line (append-only)
     """
 
     def __init__(self, project_path: str, base_dir: Path | None = None):
@@ -35,50 +36,74 @@ class SessionMemory:
         root = base_dir or Path.home() / ".toy-agent"
         self.sessions_dir = root / project_hash / "sessions"
         self.project_path = project_path
+        self._current_session_id: str | None = None
+        self._saved_count: int = 0  # number of messages already written to file
 
     def save(self, messages: list[dict]) -> str:
-        """Save messages to a new timestamped session file.
+        """Append new messages to the current session file.
+
+        Creates a new session on first call, appends only new messages on
+        subsequent calls.
 
         Returns:
             Path to the saved session file.
         """
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        filepath = self.sessions_dir / f"{timestamp}.json"
+        if self._current_session_id is None:
+            now = datetime.now()
+            self._current_session_id = now.strftime("%Y-%m-%d_%H%M%S")
+            header = {
+                "version": 1,
+                "created_at": now.isoformat(timespec="seconds"),
+                "project_path": self.project_path,
+            }
+            filepath = self.sessions_dir / f"{self._current_session_id}.jsonl"
+            with filepath.open("w") as f:
+                f.write(json.dumps(header, ensure_ascii=False) + "\n")
+            self._saved_count = 0
 
-        data = {
-            "version": 1,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-            "project_path": self.project_path,
-            "messages": messages,
-        }
+        # Append only new messages
+        new_messages = messages[self._saved_count :]
+        if new_messages:
+            filepath = self.sessions_dir / f"{self._current_session_id}.jsonl"
+            with filepath.open("a") as f:
+                for msg in new_messages:
+                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            self._saved_count = len(messages)
 
-        filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        return str(filepath)
+        return str(self.sessions_dir / f"{self._current_session_id}.jsonl")
 
     def load(self, session_id: str) -> list[dict] | None:
         """Load messages from a specific session.
 
         Args:
-            session_id: Session identifier (filename without .json extension).
+            session_id: Session identifier (filename without .jsonl extension).
 
         Returns:
             List of message dicts, or None if session not found or corrupted.
         """
-        filepath = self.sessions_dir / f"{session_id}.json"
+        filepath = self.sessions_dir / f"{session_id}.jsonl"
         if not filepath.exists():
             return None
 
         try:
-            data = json.loads(filepath.read_text())
-            return data["messages"]
-        except (json.JSONDecodeError, KeyError):
+            lines = filepath.read_text().strip().split("\n")
+            if not lines:
+                return None
+            # First line must be valid header
+            json.loads(lines[0])
+            # Remaining lines are messages
+            return [json.loads(line) for line in lines[1:]]
+        except (json.JSONDecodeError, IndexError):
             warnings.warn(f"Corrupted session file: {filepath}", stacklevel=2)
             return None
 
-    def list_sessions(self) -> list[SessionMeta]:
-        """List all saved sessions, sorted by time descending (newest first).
+    def list_sessions(self, max_num: int = 0) -> list[SessionMeta]:
+        """List saved sessions, sorted by time descending (newest first).
+
+        Args:
+            max_num: Maximum number of sessions to return. 0 means all.
 
         Returns:
             List of SessionMeta objects.
@@ -87,17 +112,22 @@ class SessionMemory:
             return []
 
         sessions = []
-        for f in sorted(self.sessions_dir.glob("*.json"), reverse=True):
+        for f in sorted(self.sessions_dir.glob("*.jsonl"), reverse=True):
             try:
-                data = json.loads(f.read_text())
+                with f.open() as fh:
+                    header_line = fh.readline()
+                    if not header_line:
+                        continue
+                    header = json.loads(header_line)
                 sessions.append(
                     SessionMeta(
                         session_id=f.stem,
-                        created_at=data.get("created_at", ""),
-                        message_count=len(data.get("messages", [])),
+                        created_at=header.get("created_at", ""),
                     )
                 )
-            except (json.JSONDecodeError, KeyError):
+                if max_num and len(sessions) >= max_num:
+                    break
+            except (json.JSONDecodeError, IndexError):
                 continue  # skip corrupted files
 
         return sessions
@@ -108,7 +138,7 @@ class SessionMemory:
         Returns:
             List of message dicts, or None if no sessions exist.
         """
-        sessions = self.list_sessions()
+        sessions = self.list_sessions(max_num=1)
         if not sessions:
             return None
         return self.load(sessions[0].session_id)
@@ -121,5 +151,5 @@ class SessionMemory:
         """
         sessions = self.list_sessions()  # already sorted newest-first
         for meta in sessions[max_sessions:]:
-            filepath = self.sessions_dir / f"{meta.session_id}.json"
+            filepath = self.sessions_dir / f"{meta.session_id}.jsonl"
             filepath.unlink(missing_ok=True)
