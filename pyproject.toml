@@ -3,12 +3,20 @@ name = "toy-agent"
 version = "0.1.0"
 description = "A minimal agent implementation to learn agent fundamentals. Python + OpenAI SDK"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+authors = [
+    {name = "keepmind9"},
+]
 dependencies = [
     "mcp>=1.6.0",
     "openai>=2.30.0",
     "python-dotenv>=1.0.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/keepmind9/toy-agent"
+Issues = "https://github.com/keepmind9/toy-agent/issues"
 
 [dependency-groups]
 dev = [

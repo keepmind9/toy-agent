@@ -24,3 +24,6 @@ CLAUDE.md
 docs/plans
 
 .cache
+.pytest_cache
+
+.claude
