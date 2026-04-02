@@ -8,6 +8,7 @@ from openai import OpenAI
 
 from toy_agent.agent import Agent
 from toy_agent.config import load_mcp_config
+from toy_agent.context import ContextCompressor
 from toy_agent.mcp import MCPClient
 from toy_agent.memory import SessionMemory
 from toy_agent.skills import load_skills
@@ -70,6 +71,7 @@ async def async_main():
     print(f"[skills] {len(skills)} skills loaded\n")
 
     stream = os.getenv("TOY_AGENT_STREAM", "true").lower() in ("true", "1", "yes")
+    context_token_limit = int(os.getenv("TOY_AGENT_CONTEXT_TOKEN_LIMIT", "80000"))
 
     agent = Agent(
         client=client,
@@ -83,6 +85,10 @@ async def async_main():
     # Session memory
     memory = SessionMemory(project_path=os.getcwd())
     agent.memory = memory
+
+    # Context compression
+    compressor = ContextCompressor(client=client, model=model, token_limit=context_token_limit)
+    agent.compressor = compressor
 
     print(f"[stream] {'on' if stream else 'off'}")
     print("Toy Agent - type 'quit' to exit\n")
