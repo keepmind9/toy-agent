@@ -188,7 +188,10 @@ class ContextCompressor:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "Summarize the following agent execution in 1-2 sentences. Focus on what was done and the outcome."},
+                    {
+                        "role": "system",
+                        "content": "Summarize the following agent execution in 1-2 sentences. Focus on what was done and the outcome.",
+                    },
                     {"role": "user", "content": text},
                 ],
                 max_tokens=200,

@@ -31,9 +31,7 @@ class TestTokenCounting:
 class TestCompressNoop:
     def test_no_compress_when_under_limit(self):
         """Messages under token limit should be returned unchanged."""
-        compressor = ContextCompressor(
-            client=MagicMock(), model="gpt-4o-mini", token_limit=100000
-        )
+        compressor = ContextCompressor(client=MagicMock(), model="gpt-4o-mini", token_limit=100000)
         messages = [
             {"role": "system", "content": "You are helpful."},
             {"role": "user", "content": "Hello"},
@@ -86,9 +84,17 @@ class TestLevel1Compression:
         messages = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "read the file"},
-            {"role": "assistant", "content": None, "tool_calls": [
-                {"id": "tc1", "type": "function", "function": {"name": "read_file", "arguments": '{"path": "/tmp/a.txt"}'}}
-            ]},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "tc1",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path": "/tmp/a.txt"}'},
+                    }
+                ],
+            },
             {"role": "tool", "tool_call_id": "tc1", "content": "file contents here"},
             {"role": "user", "content": "now summarize"},
         ]
@@ -113,7 +119,9 @@ class TestLevel1Compression:
     def test_cooldown_prevents_repeated_compression(self):
         """After compression, next compress() call should skip."""
         compressor = ContextCompressor(
-            client=MagicMock(), model="gpt-4o-mini", token_limit=1  # very low to force trigger
+            client=MagicMock(),
+            model="gpt-4o-mini",
+            token_limit=1,  # very low to force trigger
         )
         compressor._summarize = lambda msgs: "summary"
 
