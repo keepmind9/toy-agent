@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from toy_agent.context import ContextCompressor
 
 
@@ -131,7 +129,7 @@ class TestLevel1Compression:
             {"role": "assistant", "content": "hi"},
             {"role": "user", "content": "there"},
         ]
-        result1 = compressor.compress(messages)
+        compressor.compress(messages)
         assert compressor._cooldown is True
 
         # Second call should return same messages (cooldown active)

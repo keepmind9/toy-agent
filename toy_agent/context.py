@@ -190,7 +190,7 @@ class ContextCompressor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "Summarize the following agent execution in 1-2 sentences. Focus on what was done and the outcome.",
+                        "content": "Summarize this agent turn in 1-2 sentences: what was done and the outcome.",
                     },
                     {"role": "user", "content": text},
                 ],

@@ -21,8 +21,8 @@ from toy_agent.skills import Skill, get_skill
 from toy_agent.tools import Tool
 
 if TYPE_CHECKING:
-    from toy_agent.memory import SessionMemory
     from toy_agent.context import ContextCompressor
+    from toy_agent.memory import SessionMemory
 
 
 class Agent:
