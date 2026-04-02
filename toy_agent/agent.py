@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from openai import APIError, OpenAI
 
+from toy_agent.hooks import AgentHook
 from toy_agent.skills import Skill, get_skill
 from toy_agent.tools import Tool
 
@@ -36,6 +37,7 @@ class Agent:
         stream: bool = False,
         memory: SessionMemory | None = None,
         compressor: ContextCompressor | None = None,
+        hooks: list[AgentHook] | None = None,
     ):
         self.client = client
         self.model = model
@@ -44,6 +46,7 @@ class Agent:
         self.stream = stream
         self.memory = memory
         self.compressor = compressor
+        self.hooks = hooks or []
         self.system = self._build_system_prompt(system)
         self.messages: list[dict] = [{"role": "system", "content": self.system}]
 
@@ -69,6 +72,10 @@ class Agent:
             parts.append(f"Available skills (call load_skill to activate):\n{skill_list}")
 
         return "\n\n".join(parts)
+
+    def _emit(self, event: str, **kwargs) -> None:
+        for h in self.hooks:
+            getattr(h, event, lambda **_: None)(**kwargs)
 
     @property
     def _all_tool_schemas(self) -> list[dict]:
@@ -105,15 +112,21 @@ class Agent:
         """
         use_stream = stream if stream is not None else self.stream
         self.messages.append({"role": "user", "content": user_input})
+        self._emit("on_message", role="user", content=user_input)
 
+        before_count = len(self.messages)
         if self.compressor:
             self.messages = self.compressor.compress(self.messages)
+            if len(self.messages) < before_count:
+                self._emit("on_compress", before_count=before_count, after_count=len(self.messages))
 
         turn = 0
         while True:
             turn += 1
             if max_turns is not None and turn > max_turns:
                 return f"[Error] Exceeded max turns ({max_turns})"
+
+            self._emit("on_llm_request", messages=self.messages)
 
             try:
                 response = self.client.chat.completions.create(
@@ -123,6 +136,7 @@ class Agent:
                     stream=use_stream,
                 )
             except APIError as e:
+                self._emit("on_error", error=f"[API Error] {e.status_code}: {e.message}")
                 return f"[API Error] {e.status_code}: {e.message}"
 
             if use_stream:
@@ -131,27 +145,30 @@ class Agent:
             message = response.choices[0].message
 
             if message.tool_calls:
-                self.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": message.content,
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments,
-                                },
-                            }
-                            for tc in message.tool_calls
-                        ],
-                    }
-                )
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in message.tool_calls
+                    ],
+                }
+                self._emit("on_llm_response", message=assistant_msg)
+                self.messages.append(assistant_msg)
+                self._emit("on_message", role="assistant", content=message.content or "")
 
                 for tool_call in message.tool_calls:
                     fn_args = json.loads(tool_call.function.arguments)
+                    self._emit("on_tool_call", tool_name=tool_call.function.name, arguments=fn_args)
                     result = await self._execute_tool(tool_call.function.name, fn_args)
+                    self._emit("on_tool_result", tool_name=tool_call.function.name, result=str(result))
                     self.messages.append(
                         {
                             "role": "tool",
@@ -163,6 +180,8 @@ class Agent:
                 continue
 
             self.messages.append({"role": "assistant", "content": message.content})
+            self._emit("on_message", role="assistant", content=message.content)
+            self._emit("on_llm_response", message={"role": "assistant", "content": message.content})
             if self.memory:
                 self.memory.save(self.messages)
             return message.content
@@ -171,7 +190,6 @@ class Agent:
         """Find and execute the corresponding tool function."""
         # Built-in load_skill tool
         if fn_name == "load_skill":
-            print(f"  [tool] {fn_name}({fn_args})")
             name = fn_args.get("name", "")
             skill = get_skill(self.skills, name)
             if not skill:
@@ -181,12 +199,12 @@ class Agent:
         # User-registered tools
         for tool in self.tools:
             if tool.schema["function"]["name"] == fn_name:
-                print(f"  [tool] {fn_name}({fn_args})")
                 try:
                     if inspect.iscoroutinefunction(tool.fn):
                         return await tool.fn(**fn_args)
                     return tool.fn(**fn_args)
                 except Exception as e:
+                    self._emit("on_error", error=f"Error: tool '{fn_name}' failed: {e}")
                     return f"Error: tool '{fn_name}' failed: {e}"
 
         return f"Error: unknown tool '{fn_name}'"
@@ -237,16 +255,22 @@ class Agent:
                 ],
             }
             self.messages.append(message_dict)
+            self._emit("on_llm_response", message=message_dict)
+            self._emit("on_message", role="assistant", content=collected_content or "")
 
             for tc in tool_calls_data.values():
                 fn_args = json.loads(tc["arguments"])
+                self._emit("on_tool_call", tool_name=tc["name"], arguments=fn_args)
                 result = await self._execute_tool(tc["name"], fn_args)
+                self._emit("on_tool_result", tool_name=tc["name"], result=str(result))
                 self.messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
 
             # Continue — get next response (recursive call)
             turn += 1
             if max_turns is not None and turn > max_turns:
                 return f"[Error] Exceeded max turns ({max_turns})"
+
+            self._emit("on_llm_request", messages=self.messages)
 
             try:
                 response = self.client.chat.completions.create(
@@ -256,12 +280,16 @@ class Agent:
                     stream=True,
                 )
             except APIError as e:
+                self._emit("on_error", error=f"[API Error] {e.status_code}: {e.message}")
                 return f"[API Error] {e.status_code}: {e.message}"
 
             return await self._process_stream(response, max_turns=max_turns, turn=turn)
 
         # No tool calls — final answer
-        self.messages.append({"role": "assistant", "content": collected_content})
+        final_message = {"role": "assistant", "content": collected_content}
+        self._emit("on_llm_response", message=final_message)
+        self.messages.append(final_message)
+        self._emit("on_message", role="assistant", content=collected_content)
         if self.memory:
             self.memory.save(self.messages)
         return collected_content

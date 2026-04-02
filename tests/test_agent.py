@@ -29,6 +29,150 @@ def _make_text_response(text="done"):
     return message
 
 
+class TestAgentHooks:
+    @pytest.mark.anyio
+    async def test_hooks_called_on_llm_request(self):
+        """on_llm_request hook is called before each API call."""
+        mock_hook = MagicMock()
+        client = MagicMock()
+        response = _make_text_response("hello")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        agent = Agent(client=client, hooks=[mock_hook])
+        await agent.run("hi")
+
+        mock_hook.on_llm_request.assert_called_once()
+        call_kwargs = mock_hook.on_llm_request.call_args.kwargs
+        assert any(m["role"] == "system" for m in call_kwargs["messages"])
+        assert any(m["role"] == "user" for m in call_kwargs["messages"])
+
+    @pytest.mark.anyio
+    async def test_hooks_called_on_message(self):
+        """on_message hook is called when user message is appended."""
+        mock_hook = MagicMock()
+        client = MagicMock()
+        response = _make_text_response("hello")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        agent = Agent(client=client, hooks=[mock_hook])
+        await agent.run("test message")
+
+        mock_hook.on_message.assert_called()
+        roles = [call.kwargs.get("role") for call in mock_hook.on_message.call_args_list]
+        assert "user" in roles
+
+    @pytest.mark.anyio
+    async def test_hooks_called_on_tool_call(self):
+        """on_tool_call hook is called before each tool execution."""
+        mock_hook = MagicMock()
+        client = MagicMock()
+
+        tool_msg = MagicMock()
+        tool_msg.content = None
+        tc = MagicMock()
+        tc.id = "tc1"
+        tc.function.name = "read_file"
+        tc.function.arguments = '{"path": "/tmp/a.txt"}'
+        tool_msg.tool_calls = [tc]
+
+        text_msg = MagicMock()
+        text_msg.content = "done"
+        text_msg.tool_calls = None
+
+        client.chat.completions.create.side_effect = [
+            MagicMock(choices=[MagicMock(message=tool_msg)]),
+            MagicMock(choices=[MagicMock(message=text_msg)]),
+        ]
+
+        async def dummy_tool(path: str) -> str:
+            return "file contents"
+
+        from toy_agent.tools import Tool
+
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string", "description": "File path"}},
+                    "required": ["path"],
+                },
+            },
+        }
+        t = Tool(schema=tool_schema, fn=dummy_tool)
+
+        agent = Agent(client=client, tools=[t], hooks=[mock_hook])
+        await agent.run("read the file")
+
+        mock_hook.on_tool_call.assert_called_once_with(tool_name="read_file", arguments={"path": "/tmp/a.txt"})
+
+    @pytest.mark.anyio
+    async def test_hooks_called_on_error(self):
+        """on_error hook is called when API raises an error."""
+        mock_hook = MagicMock()
+        client = MagicMock()
+
+        from openai import APIError
+
+        fake_error = APIError(message="server error", request=MagicMock(), body=None)
+        fake_error.status_code = 500  # injected attribute (not native to this SDK version)
+        client.chat.completions.create.side_effect = fake_error
+
+        agent = Agent(client=client, hooks=[mock_hook])
+        await agent.run("test")
+
+        mock_hook.on_error.assert_called_once()
+        assert "500" in mock_hook.on_error.call_args.kwargs["error"]
+
+    @pytest.mark.anyio
+    async def test_hooks_on_llm_response(self):
+        """on_llm_response hook is called after each API response."""
+        mock_hook = MagicMock()
+        client = MagicMock()
+        response = _make_text_response("the answer")
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+
+        agent = Agent(client=client, hooks=[mock_hook])
+        await agent.run("question")
+
+        mock_hook.on_llm_response.assert_called_once()
+        assert mock_hook.on_llm_response.call_args.kwargs["message"]["role"] == "assistant"
+
+    def test_hooks_empty_by_default(self):
+        """Agent with no hooks should have an empty hooks list."""
+        client = MagicMock()
+        agent = Agent(client=client)
+        assert agent.hooks == []
+
+    def test_hooks_from_constructor(self):
+        """Agent should accept hooks list in constructor."""
+        client = MagicMock()
+        hook = MagicMock()
+        agent = Agent(client=client, hooks=[hook])
+        assert agent.hooks == [hook]
+
+
+def _make_tool_call_response(tool_call_id="tc_1", fn_name="test_tool", fn_args="{}"):
+    """Create a mock response with a single tool_call."""
+    message = MagicMock()
+    message.tool_calls = [MagicMock()]
+    message.tool_calls[0].id = tool_call_id
+    message.tool_calls[0].function.name = fn_name
+    message.tool_calls[0].function.arguments = fn_args
+    message.content = None
+    return message
+
+
+def _make_text_response(text="done"):
+    """Create a mock response with plain text (no tool_calls)."""
+    message = MagicMock()
+    message.tool_calls = None
+    message.content = text
+    return message
+
+
 class TestMaxTurns:
     @pytest.mark.anyio
     async def test_stops_after_max_turns(self):
