@@ -31,7 +31,6 @@ toy-agent/
 │   ├── test_skills.py           # Skills loader tests
 │   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
-├── .toy-agent/mcp.json          # MCP server config (not tracked)
 ├── Makefile
 └── pyproject.toml
 ```

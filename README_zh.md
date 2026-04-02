@@ -31,7 +31,6 @@ toy-agent/
 │   ├── test_skills.py           # Skills 加载器测试
 │   └── test_subagent.py         # SubAgentTool 测试
 ├── .env.example
-├── .toy-agent/mcp.json          # MCP 服务器配置（不提交）
 ├── Makefile
 └── pyproject.toml
 ```
