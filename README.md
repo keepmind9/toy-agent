@@ -12,6 +12,7 @@ toy-agent/
 ├── toy_agent/
 │   ├── agent.py                # Agent loop core
 │   ├── config.py               # Multi-level config loader
+│   ├── hooks.py               # AgentHook observability system
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── memory.py               # Session persistence
 │   ├── skills.py              # Skills loader
@@ -24,6 +25,8 @@ toy-agent/
 │   ├── mcp_stdio_server.py      # stdio MCP server for testing
 │   ├── mcp_sse_server.py        # SSE MCP server for testing
 │   ├── test_agent.py            # Agent unit tests
+│   ├── test_context.py          # ContextCompressor tests
+│   ├── test_hooks.py            # Hook system tests
 │   ├── test_memory.py           # SessionMemory tests
 │   ├── test_skills.py           # Skills loader tests
 │   └── test_subagent.py         # SubAgentTool tests
@@ -194,6 +197,37 @@ agent = Agent(client=client, compressor=compressor)
 ```
 
 - Set `TOY_AGENT_CONTEXT_TOKEN_LIMIT` in `.env` to override the token limit (default: 80000)
+
+## Phase 9: Observability Hooks
+
+Pluggable event callbacks for observing and instrumenting the agent loop. All events are no-ops by default — implement a subclass to hook into any point in the execution.
+
+```python
+from toy_agent.hooks import AgentHook, ConsoleHook
+
+class MyHook(AgentHook):
+    def on_tool_call(self, *, tool_name: str, arguments: dict):
+        print(f"DEBUG: calling {tool_name} with {arguments}")
+
+    def on_error(self, *, error: str):
+        sentry.capture_exception(error)
+
+agent = Agent(client=client, hooks=[MyHook()])
+```
+
+**Built-in `ConsoleHook`** replicates the previous console output behaviour and is used by the CLI by default.
+
+**Available events:**
+
+| Event | When | Key Args |
+|-------|------|----------|
+| `on_message` | message appended to history | `role`, `content` |
+| `on_llm_request` | before LLM API call | `messages` |
+| `on_llm_response` | after LLM response | `message` |
+| `on_tool_call` | before tool execution | `tool_name`, `arguments` |
+| `on_tool_result` | after tool returns | `tool_name`, `result` |
+| `on_compress` | after context compression | `before_count`, `after_count` |
+| `on_error` | on any error | `error` |
 
 ## Getting Started
 

@@ -12,6 +12,7 @@ toy-agent/
 ├── toy_agent/
 │   ├── agent.py                # Agent loop 核心
 │   ├── config.py               # 多级配置加载
+│   ├── hooks.py               # AgentHook 观测系统
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
 │   ├── memory.py               # 会话持久化
 │   ├── skills.py              # Skills 加载器
@@ -23,8 +24,10 @@ toy-agent/
 ├── tests/
 │   ├── mcp_stdio_server.py      # stdio MCP 测试服务器
 │   ├── mcp_sse_server.py        # SSE MCP 测试服务器
-│   ├── test_agent.py            # Agent 单元测试
-│   ├── test_memory.py           # SessionMemory 测试
+│   ├── test_agent.py             # Agent 单元测试
+│   ├── test_context.py           # ContextCompressor 测试
+│   ├── test_hooks.py             # Hook 系统测试
+│   ├── test_memory.py            # SessionMemory 测试
 │   ├── test_skills.py           # Skills 加载器测试
 │   └── test_subagent.py         # SubAgentTool 测试
 ├── .env.example
@@ -194,6 +197,37 @@ agent = Agent(client=client, compressor=compressor)
 ```
 
 - 在 `.env` 中设置 `TOY_AGENT_CONTEXT_TOKEN_LIMIT` 可覆盖 token 阈值（默认：80000）
+
+## Phase 9: 观测钩子（Hooks）
+
+可插拔的事件回调，用于观测和监控 Agent Loop。所有事件默认是空实现 — 只需继承 `AgentHook` 即可在任意时机插入逻辑。
+
+```python
+from toy_agent.hooks import AgentHook, ConsoleHook
+
+class MyHook(AgentHook):
+    def on_tool_call(self, *, tool_name: str, arguments: dict):
+        print(f"DEBUG: calling {tool_name} with {arguments}")
+
+    def on_error(self, *, error: str):
+        sentry.capture_exception(error)
+
+agent = Agent(client=client, hooks=[MyHook()])
+```
+
+**内置的 `ConsoleHook`** 复现了之前的控制台输出行为，CLI 默认使用它。
+
+**可用事件：**
+
+| 事件 | 触发时机 | 关键参数 |
+|------|----------|----------|
+| `on_message` | 消息追加到历史 | `role`, `content` |
+| `on_llm_request` | 发送 LLM 请求前 | `messages` |
+| `on_llm_response` | 收到 LLM 回复后 | `message` |
+| `on_tool_call` | 工具执行前 | `tool_name`, `arguments` |
+| `on_tool_result` | 工具返回后 | `tool_name`, `result` |
+| `on_compress` | 上下文压缩后 | `before_count`, `after_count` |
+| `on_error` | 发生错误时 | `error` |
 
 ## 快速开始
 
