@@ -61,7 +61,7 @@ def read_file(path: str) -> str:
 - `read_file` / `write_file` / `edit_file` — file operations
 - `run_bash` — execute shell commands (dangerous commands blocked)
 
-Tools in `src/toy_agent/tools/*.py` are auto-imported and registered. No manual registration needed.
+Tools in `toy_agent/tools/*.py` are auto-imported and registered. No manual registration needed.
 
 ## Phase 3: MCP Integration
 
@@ -177,6 +177,23 @@ memory = SessionMemory(project_path="/my/project")
 memory.save(messages)  # append new messages since last save
 restored = memory.load_latest()
 ```
+
+## Phase 8: Context Compression
+
+Three-level progressive context compression to prevent token overflow in long conversations. Full design: `docs/CONTEXT_COMPRESSION_STRATEGY.md`.
+
+- **Level 1**: Turn summary — compress tool call chains into brief summaries
+- **Level 2**: Phase overview — merge early summaries into phase overviews (TODO)
+- **Level 3**: Sliding window + global overview (TODO)
+
+```python
+from toy_agent.context import ContextCompressor
+
+compressor = ContextCompressor(client=client, model="gpt-4o-mini", token_limit=80000)
+agent = Agent(client=client, compressor=compressor)
+```
+
+- Set `TOY_AGENT_CONTEXT_TOKEN_LIMIT` in `.env` to override the token limit (default: 80000)
 
 ## Getting Started
 

@@ -61,7 +61,7 @@ def read_file(path: str) -> str:
 - `read_file` / `write_file` / `edit_file` — 文件操作
 - `run_bash` — 执行 Shell 命令（高危命令被禁止）
 
-`src/toy_agent/tools/*.py` 中的工具会被自动导入和注册，无需手动添加。
+`toy_agent/tools/*.py` 中的工具会被自动导入和注册，无需手动添加。
 
 ## Phase 3: MCP 集成
 
@@ -177,6 +177,23 @@ memory = SessionMemory(project_path="/my/project")
 memory.save(messages)  # 追加上次 save 之后的新消息
 restored = memory.load_latest()
 ```
+
+## Phase 8: 上下文压缩
+
+三级渐进式上下文压缩，防止长对话中的 token 溢出。完整设计见 `docs/CONTEXT_COMPRESSION_STRATEGY.md`。
+
+- **Level 1**：回合摘要 — 将工具调用链压缩为简要摘要
+- **Level 2**：阶段概览 — 合并早期摘要（TODO）
+- **Level 3**：滑动窗口 + 全局概览（TODO）
+
+```python
+from toy_agent.context import ContextCompressor
+
+compressor = ContextCompressor(client=client, model="gpt-4o-mini", token_limit=80000)
+agent = Agent(client=client, compressor=compressor)
+```
+
+- 在 `.env` 中设置 `TOY_AGENT_CONTEXT_TOKEN_LIMIT` 可覆盖 token 阈值（默认：80000）
 
 ## 快速开始
 
