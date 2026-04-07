@@ -364,3 +364,132 @@ class TestAgentCompressor:
         result = await agent.run("test")
 
         assert result == "no compressor"
+
+
+class TestToolRetry:
+    @pytest.mark.anyio
+    async def test_tool_not_retried_by_default(self):
+        """Without max_tool_retries, failed tool returns error immediately."""
+        client = MagicMock()
+        tool_msg = _make_tool_call_response(fn_name="flaky_tool")
+        text_msg = _make_text_response("fallback answer")
+        client.chat.completions.create.side_effect = [
+            MagicMock(choices=[MagicMock(message=tool_msg)]),
+            MagicMock(choices=[MagicMock(message=text_msg)]),
+        ]
+
+        call_count = 0
+
+        async def always_fail(**kwargs: object) -> str:
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("always fail")
+
+        from toy_agent.tools import Tool
+
+        t = Tool(
+            schema={
+                "type": "function",
+                "function": {
+                    "name": "flaky_tool",
+                    "description": "A flaky tool",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            },
+            fn=always_fail,
+        )
+
+        agent = Agent(client=client, tools=[t], max_tool_retries=0)
+        await agent.run("do it")
+
+        assert call_count == 1  # no retry, just one attempt
+
+    @pytest.mark.anyio
+    async def test_tool_retried_on_failure(self):
+        """With max_tool_retries > 0, failed tool is retried until success."""
+        client = MagicMock()
+        tool_msg = _make_tool_call_response(fn_name="flaky_tool")
+        text_msg = _make_text_response("success result")
+        client.chat.completions.create.side_effect = [
+            MagicMock(choices=[MagicMock(message=tool_msg)]),
+            MagicMock(choices=[MagicMock(message=text_msg)]),
+        ]
+
+        call_count = 0
+
+        async def fail_twice_then_succeed(**kwargs: object) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RuntimeError(f"attempt {call_count} failed")
+            return "flaky succeeded"
+
+        from toy_agent.tools import Tool
+
+        t = Tool(
+            schema={
+                "type": "function",
+                "function": {
+                    "name": "flaky_tool",
+                    "description": "A flaky tool",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            },
+            fn=fail_twice_then_succeed,
+        )
+
+        agent = Agent(client=client, tools=[t], max_tool_retries=2)
+        result = await agent.run("do it")
+
+        assert call_count == 3  # 2 failures + 1 success
+        assert result == "success result"
+
+    @pytest.mark.anyio
+    async def test_tool_retry_hook_fires(self):
+        """on_tool_retry hook is called for each retry attempt."""
+        from unittest.mock import MagicMock as MockHook
+
+        mock_hook = MockHook()
+        client = MagicMock()
+        tool_msg = _make_tool_call_response(fn_name="flaky_tool")
+        text_msg = _make_text_response("done")
+        client.chat.completions.create.side_effect = [
+            MagicMock(choices=[MagicMock(message=tool_msg)]),
+            MagicMock(choices=[MagicMock(message=text_msg)]),
+        ]
+
+        call_count = 0
+
+        async def fail_twice_then_succeed(**kwargs: object) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RuntimeError(f"fail {call_count}")
+            return "ok"
+
+        from toy_agent.tools import Tool
+
+        t = Tool(
+            schema={
+                "type": "function",
+                "function": {
+                    "name": "flaky_tool",
+                    "description": "A flaky tool",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            },
+            fn=fail_twice_then_succeed,
+        )
+
+        agent = Agent(client=client, tools=[t], hooks=[mock_hook], max_tool_retries=2)
+        await agent.run("do it")
+
+        assert mock_hook.on_tool_retry.call_count == 2
+        assert mock_hook.on_tool_retry.call_args_list[0].kwargs["attempt"] == 0
+        assert mock_hook.on_tool_retry.call_args_list[1].kwargs["attempt"] == 1
+
+    def test_max_tool_retries_default_zero(self):
+        """max_tool_retries defaults to 0 (no retry)."""
+        client = MagicMock()
+        agent = Agent(client=client)
+        assert agent.max_tool_retries == 0

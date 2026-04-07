@@ -225,8 +225,20 @@ agent = Agent(client=client, hooks=[MyHook()])
 | `on_llm_response` | after LLM response | `message` |
 | `on_tool_call` | before tool execution | `tool_name`, `arguments` |
 | `on_tool_result` | after tool returns | `tool_name`, `result` |
+| `on_tool_retry` | before retry attempt | `tool_name`, `attempt`, `error` |
 | `on_compress` | after context compression | `before_count`, `after_count` |
 | `on_error` | on any error | `error` |
+
+### Tool Retry
+
+Tools that fail transiently (file locks, network timeouts) are automatically retried with exponential backoff.
+
+```python
+agent = Agent(client=client, max_tool_retries=2)  # retry up to 2 times
+```
+
+- `on_tool_retry` hook fires before each retry attempt
+- Default: `max_tool_retries=0` (no retry, backward compatible)
 
 ## Getting Started
 

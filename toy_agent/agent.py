@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import time
 from typing import TYPE_CHECKING, Any
 
 from openai import APIError, OpenAI
@@ -38,6 +39,7 @@ class Agent:
         memory: SessionMemory | None = None,
         compressor: ContextCompressor | None = None,
         hooks: list[AgentHook] | None = None,
+        max_tool_retries: int = 0,
     ):
         self.client = client
         self.model = model
@@ -47,6 +49,7 @@ class Agent:
         self.memory = memory
         self.compressor = compressor
         self.hooks = hooks or []
+        self.max_tool_retries = max_tool_retries
         self.system = self._build_system_prompt(system)
         self.messages: list[dict] = [{"role": "system", "content": self.system}]
 
@@ -188,7 +191,7 @@ class Agent:
 
     async def _execute_tool(self, fn_name: str, fn_args: dict) -> Any:
         """Find and execute the corresponding tool function."""
-        # Built-in load_skill tool
+        # Built-in load_skill tool (no retry)
         if fn_name == "load_skill":
             name = fn_args.get("name", "")
             skill = get_skill(self.skills, name)
@@ -196,16 +199,25 @@ class Agent:
                 return f"Skill '{name}' not found. Available skills: {[s.name for s in self.skills]}"
             return skill.content
 
-        # User-registered tools
+        # User-registered tools (with retry)
         for tool in self.tools:
             if tool.schema["function"]["name"] == fn_name:
-                try:
-                    if inspect.iscoroutinefunction(tool.fn):
-                        return await tool.fn(**fn_args)
-                    return tool.fn(**fn_args)
-                except Exception as e:
-                    self._emit("on_error", error=f"Error: tool '{fn_name}' failed: {e}")
-                    return f"Error: tool '{fn_name}' failed: {e}"
+                for attempt in range(self.max_tool_retries + 1):
+                    try:
+                        if inspect.iscoroutinefunction(tool.fn):
+                            return await tool.fn(**fn_args)
+                        return tool.fn(**fn_args)
+                    except Exception as e:
+                        error_str = str(e)
+                        if attempt < self.max_tool_retries:
+                            self._emit("on_tool_retry", tool_name=fn_name, attempt=attempt, error=error_str)
+                            time.sleep(2**attempt)  # exponential backoff
+                            continue
+                        self._emit(
+                            "on_error",
+                            error=f"Error: tool '{fn_name}' failed after {self.max_tool_retries} retries: {e}",
+                        )
+                        return f"Error: tool '{fn_name}' failed: {e}"
 
         return f"Error: unknown tool '{fn_name}'"
 

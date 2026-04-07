@@ -225,8 +225,20 @@ agent = Agent(client=client, hooks=[MyHook()])
 | `on_llm_response` | 收到 LLM 回复后 | `message` |
 | `on_tool_call` | 工具执行前 | `tool_name`, `arguments` |
 | `on_tool_result` | 工具返回后 | `tool_name`, `result` |
+| `on_tool_retry` | 重试前 | `tool_name`, `attempt`, `error` |
 | `on_compress` | 上下文压缩后 | `before_count`, `after_count` |
 | `on_error` | 发生错误时 | `error` |
+
+### 工具重试
+
+临时失败的工具（文件锁、网络超时）会自动重试，采用指数退避策略。
+
+```python
+agent = Agent(client=client, max_tool_retries=2)  # 最多重试 2 次
+```
+
+- `on_tool_retry` 钩子在每次重试前触发
+- 默认：`max_tool_retries=0`（不重试，向后兼容）
 
 ## 快速开始
 

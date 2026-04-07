@@ -32,6 +32,10 @@ class AgentHook(ABC):
         """Called after a tool returns a result."""
         ...
 
+    def on_tool_retry(self, *, tool_name: str, attempt: int, error: str) -> None:
+        """Called when a tool failed and will be retried."""
+        ...
+
     def on_compress(self, *, before_count: int, after_count: int) -> None:
         """Called after context compression finishes."""
         ...
@@ -53,6 +57,9 @@ class ConsoleHook(AgentHook):
 
     def on_tool_call(self, *, tool_name: str, arguments: dict) -> None:
         print(f"  [tool] {tool_name}({arguments})")
+
+    def on_tool_retry(self, *, tool_name: str, attempt: int, error: str) -> None:
+        print(f"  [tool-retry] {tool_name} attempt {attempt + 1}: {error}")
 
     def on_error(self, *, error: str) -> None:
         print(f"[error] {error}")

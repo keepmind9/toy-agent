@@ -13,6 +13,7 @@ class TestAgentHook:
             "on_llm_response",
             "on_tool_call",
             "on_tool_result",
+            "on_tool_retry",
             "on_compress",
             "on_error",
         ]
@@ -27,6 +28,7 @@ class TestAgentHook:
         assert callable(hook.on_llm_response)
         assert callable(hook.on_tool_call)
         assert callable(hook.on_tool_result)
+        assert callable(hook.on_tool_retry)
         assert callable(hook.on_compress)
         assert callable(hook.on_error)
 
@@ -61,3 +63,11 @@ class TestConsoleHookOutput:
         captured = capsys.readouterr()
         assert "[error]" in captured.out
         assert "something went wrong" in captured.out
+
+    def test_on_tool_retry_prints(self, capsys):
+        """on_tool_retry prints tool name and retry info."""
+        hook = ConsoleHook()
+        hook.on_tool_retry(tool_name="read_file", attempt=1, error="file locked")
+        captured = capsys.readouterr()
+        assert "read_file" in captured.out
+        assert "retry" in captured.out.lower()
