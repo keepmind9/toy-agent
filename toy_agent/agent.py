@@ -201,8 +201,27 @@ class Agent:
                 self.memory.save(self.messages)
             return message.content
 
+    async def _check_guardrails(self, tool_name: str, arguments: dict) -> str | None:
+        """Check if any guardrail hook blocks this tool call.
+
+        Returns a block reason string if blocked, None if allowed.
+        """
+        for h in self.hooks:
+            result = h.on_tool_approve(tool_name=tool_name, arguments=arguments)
+            if inspect.isawaitable(result):
+                result = await result
+            if isinstance(result, str):
+                self._emit("on_guardrail_block", tool_name=tool_name, arguments=arguments, reason=result)
+                return result
+        return None
+
     async def _execute_tool(self, fn_name: str, fn_args: dict) -> Any:
         """Find and execute the corresponding tool function."""
+        # Guardrail check before execution
+        blocked = await self._check_guardrails(fn_name, fn_args)
+        if blocked is not None:
+            return blocked
+
         # Built-in load_skill tool (no retry)
         if fn_name == "load_skill":
             name = fn_args.get("name", "")

@@ -10,6 +10,7 @@ from openai import OpenAI
 from toy_agent.agent import Agent
 from toy_agent.config import load_mcp_config
 from toy_agent.context import ContextCompressor
+from toy_agent.guardrails import GuardrailHook
 from toy_agent.hooks import ConsoleHook
 from toy_agent.mcp import MCPClient
 from toy_agent.memory import SessionMemory
@@ -106,7 +107,7 @@ async def async_main():
         tools=all_tools,
         skills=skills,
         stream=stream,
-        hooks=[ConsoleHook(), ReActPlanHook()],
+        hooks=[ConsoleHook(), ReActPlanHook(), GuardrailHook()],
     )
 
     # Session memory

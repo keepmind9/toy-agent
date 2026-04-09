@@ -16,6 +16,7 @@ toy-agent/
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── memory.py               # Session persistence
 │   ├── planning.py             # PlanHook + ReActPlanHook (task planning)
+│   ├── guardrails.py           # GuardrailHook (human-in-the-loop approval)
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
 │   └── tools/
@@ -30,6 +31,7 @@ toy-agent/
 │   ├── test_hooks.py            # Hook system tests
 │   ├── test_memory.py           # SessionMemory tests
 │   ├── test_planning.py         # Planning tests (both hooks)
+│   ├── test_guardrails.py       # Guardrails tests
 │   ├── test_skills.py           # Skills loader tests
 │   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
@@ -289,6 +291,37 @@ agent = Agent(
 ### Why Both Exist
 
 In production agents, planning is typically just part of the system prompt — no separate hook is needed. These two hooks are preserved as **learning examples** to illustrate the evolution from explicit planning (PlanHook) to the model-driven approach (ReActPlanHook) that production agents actually use.
+
+## Phase 11: Guardrails (Human-in-the-Loop)
+
+The agent can require human approval before executing dangerous tools. This is implemented as a guardrail hook that intercepts tool calls before execution.
+
+```python
+from toy_agent.guardrails import GuardrailHook
+
+# Default: approve run_bash, write_file, edit_file
+agent = Agent(
+    client=client,
+    hooks=[ConsoleHook(), GuardrailHook()],
+)
+
+# Custom approval list
+hook = GuardrailHook(approval_tools={"run_bash", "write_file"})
+
+# Auto-approve specific tools (no prompt)
+hook = GuardrailHook(auto_approve={"run_bash"})
+```
+
+When a tool requires approval, the user is prompted:
+```
+[guardrail] Allow run_bash({"command": "rm -rf /tmp/old"})? [y/N]
+```
+
+- Returning `n` or pressing Enter blocks execution; the blocked message is returned as the tool result
+- Returning `y` allows execution to proceed normally
+- The hook system uses `on_tool_approve` (returns `None` to allow, `str` to block) and `on_guardrail_block` (observation event)
+- Works for both streaming and non-streaming modes
+- `load_skill` and `read_file` are allowed by default (no approval needed)
 
 ## Getting Started
 

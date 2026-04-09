@@ -34,6 +34,18 @@ class AgentHook(ABC):
         """Called before executing a tool."""
         ...
 
+    def on_tool_approve(self, *, tool_name: str, arguments: dict) -> str | None:
+        """Called before tool execution to check if it should be allowed.
+
+        Return None to allow execution, or a string to block execution
+        and use that string as the tool result instead.
+        """
+        ...
+
+    def on_guardrail_block(self, *, tool_name: str, arguments: dict, reason: str) -> None:
+        """Called when a tool call is blocked by a guardrail hook."""
+        ...
+
     def on_tool_result(self, *, tool_name: str, result: str) -> None:
         """Called after a tool returns a result."""
         ...
@@ -85,6 +97,9 @@ class ConsoleHook(AgentHook):
 
     def on_error(self, *, error: str) -> None:
         print(f"[error] {error}")
+
+    def on_guardrail_block(self, *, tool_name, arguments, reason) -> None:
+        print(f"[guardrail] Blocked {tool_name}: {reason}")
 
     def on_plan(self, *, plan) -> None:
         lines = [f"[plan] Goal: {plan.goal}", "[plan] Steps:"]
