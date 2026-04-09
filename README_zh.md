@@ -15,6 +15,8 @@ toy-agent/
 │   ├── hooks.py               # AgentHook 观测系统
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
 │   ├── memory.py               # 会话持久化
+│   ├── planning.py             # PlanHook + ReActPlanHook (任务规划)
+│   ├── guardrails.py           # GuardrailHook (人工审批)
 │   ├── skills.py              # Skills 加载器
 │   ├── subagent.py            # SubAgentTool（Tool-call 模式）
 │   └── tools/
@@ -27,6 +29,8 @@ toy-agent/
 │   ├── test_agent.py             # Agent 单元测试
 │   ├── test_context.py           # ContextCompressor 测试
 │   ├── test_hooks.py             # Hook 系统测试
+│   ├── test_planning.py          # Planning 测试
+│   ├── test_guardrails.py        # Guardrails 测试
 │   ├── test_memory.py            # SessionMemory 测试
 │   ├── test_skills.py           # Skills 加载器测试
 │   └── test_subagent.py         # SubAgentTool 测试
@@ -239,6 +243,85 @@ agent = Agent(client=client, max_tool_retries=2)  # 最多重试 2 次
 
 - `on_tool_retry` 钩子在每次重试前触发
 - 默认：`max_tool_retries=0`（不重试，向后兼容）
+
+## Phase 10: Planning（任务规划）
+
+提供两种规划策略，展示 Agent 框架中不同的规划方法。两种都实现为可插拔的 Hook — 切换 hooks 列表即可切换策略。
+
+### PlanHook（Plan-then-Execute）
+
+使用独立的 LLM API 调用来分类任务并生成步骤计划。这是早期 Agent 框架（如 LangChain 的 Plan-and-Solve）中经典的"先规划后执行"模式。
+
+```python
+from toy_agent.planning import PlanHook
+
+# 自动模式：LLM 决定何时规划
+agent = Agent(
+    client=client,
+    hooks=[ConsoleHook(), PlanHook(client=client, model="gpt-4o-mini", auto=True)],
+)
+
+# 单次调用强制开启/关闭规划
+result = await agent.run("Analyze the codebase", plan=True)   # 强制规划
+result = await agent.run("Quick question", plan=False)         # 跳过规划
+```
+
+- 每次运行额外 1-2 次 LLM API 调用（分类 + 生成）
+- 使用 JSON 结构化输出（`response_format`）
+- 生成计划时触发 `on_plan` 事件
+
+### ReActPlanHook（模型自规划）
+
+注入一段 plan-aware 的提示词，让主模型在自己的上下文中完成判断、规划、执行和追踪。无额外 API 调用。这反映了生产级 Agent（Claude Code、Cursor、Devin）的实际做法 — 规划不是一个独立阶段，而是模型自然推理的一部分。
+
+```python
+from toy_agent.planning import ReActPlanHook
+
+agent = Agent(
+    client=client,
+    hooks=[ConsoleHook(), ReActPlanHook()],
+)
+```
+
+- 零额外 API 调用 — 规划在主 Agent Loop 内完成
+- 模型通过 `[Step X complete]` 标记自报步骤完成
+- `on_plan_step` / `on_plan_done` 事件在步骤完成时触发
+- `ConsoleHook` 打印步骤进度和计划摘要
+
+### 为什么同时保留两种
+
+在生产级 Agent 中，规划通常只是 system prompt 的一部分 — 不需要专门的 Hook。这两种 Hook 作为**学习示例**保留，展示从显式规划（PlanHook）到模型自规划（ReActPlanHook）的演进，帮助理解生产级 Agent 为什么最终选择了后者。
+
+## Phase 11: Guardrails（人工审批）
+
+Agent 在执行高危工具前可以要求人工确认。通过 guardrail hook 在工具执行前拦截实现。
+
+```python
+from toy_agent.guardrails import GuardrailHook
+
+# 默认：run_bash、write_file、edit_file 需要审批
+agent = Agent(
+    client=client,
+    hooks=[ConsoleHook(), GuardrailHook()],
+)
+
+# 自定义审批列表
+hook = GuardrailHook(approval_tools={"run_bash", "write_file"})
+
+# 自动放行特定工具（不弹提示）
+hook = GuardrailHook(auto_approve={"run_bash"})
+```
+
+当工具需要审批时，用户会看到提示：
+```
+[guardrail] Allow run_bash({"command": "rm -rf /tmp/old"})? [y/N]
+```
+
+- 输入 `n` 或直接回车 → 阻止执行，阻止信息作为工具结果返回
+- 输入 `y` → 正常执行
+- Hook 系统使用 `on_tool_approve`（返回 `None` 放行，返回 `str` 阻止）和 `on_guardrail_block`（观察事件）
+- 同时支持流式和非流式模式
+- `load_skill` 和 `read_file` 默认免审
 
 ## 快速开始
 
