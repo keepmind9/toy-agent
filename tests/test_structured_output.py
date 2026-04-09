@@ -174,14 +174,15 @@ class TestStructuredOutput:
         assert result.age == 40
 
     @pytest.mark.anyio
-    async def test_invalid_json_raises_validation_error(self):
-        """Malformed JSON raises ValidationError."""
-        from pydantic import ValidationError
-
+    async def test_invalid_json_falls_back_to_str(self):
+        """Malformed JSON falls back to returning raw string with a warning."""
         client = MagicMock()
         response = _make_text_response("not valid json")
         client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
 
         agent = Agent(client=client)
-        with pytest.raises(ValidationError):
-            await agent.run("Extract", response_format=UserInfo)
+        with pytest.warns(UserWarning, match="Structured output parse failed"):
+            result = await agent.run("Extract", response_format=UserInfo)
+
+        assert isinstance(result, str)
+        assert result == "not valid json"

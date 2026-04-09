@@ -14,6 +14,7 @@ from __future__ import annotations
 import inspect
 import json
 import time
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from openai import APIError, OpenAI
@@ -54,6 +55,18 @@ def _pydantic_to_response_format(model: type[BaseModel]) -> dict:
             "schema": schema,
         },
     }
+
+
+def _parse_structured_output(raw: str, model: type[BaseModel]) -> BaseModel | str:
+    """Parse LLM output into a Pydantic model, with fallback to raw string."""
+    try:
+        return model.model_validate_json(raw)
+    except Exception as e:
+        warnings.warn(
+            f"Structured output parse failed ({type(e).__name__}: {e}), returning raw string",
+            stacklevel=2,
+        )
+        return raw
 
 
 class Agent:
@@ -244,7 +257,7 @@ class Agent:
             if self.memory:
                 self.memory.save(self.messages)
             if response_format:
-                return response_format.model_validate_json(message.content)
+                return _parse_structured_output(message.content, response_format)
             return message.content
 
     async def _check_guardrails(self, tool_name: str, arguments: dict) -> str | None:
@@ -389,5 +402,5 @@ class Agent:
         if self.memory:
             self.memory.save(self.messages)
         if response_format:
-            return response_format.model_validate_json(collected_content)
+            return _parse_structured_output(collected_content, response_format)
         return collected_content
