@@ -352,6 +352,28 @@ hook = GuardrailHook(auto_approve={"run_bash"})
 - 同时支持流式和非流式模式
 - `load_skill` 和 `read_file` 默认免审
 
+## Phase 12: Structured Output（结构化输出）
+
+返回解析好的 Pydantic 模型而非原始字符串。向 `run()` 传入 `response_format` 即可获得类型化的 Python 对象。
+
+```python
+from pydantic import BaseModel
+
+class UserInfo(BaseModel):
+    name: str
+    age: int
+
+result = await agent.run("Alice 今年 30 岁", response_format=UserInfo)
+# result 是 UserInfo(name="Alice", age=30)
+```
+
+当 `response_format` 被设置时：
+- **工具被禁用** — 结构化提取模式，而非 agent 工具调用模式
+- **Schema 严格模式** — 使用 OpenAI 的 `json_schema` 模式 + `strict: true`，保证输出匹配模型定义
+- **跳过 Planning** — 提取任务不需要多步规划
+
+同时支持流式和非流式模式。支持嵌套模型（通过 `$defs`）。
+
 ## 快速开始
 
 ```bash

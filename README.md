@@ -352,6 +352,28 @@ When a tool requires approval, the user is prompted:
 - Works for both streaming and non-streaming modes
 - `load_skill` and `read_file` are allowed by default (no approval needed)
 
+## Phase 12: Structured Output
+
+Return parsed Pydantic models instead of raw strings. Pass a `response_format` to `run()` and get a typed Python object back.
+
+```python
+from pydantic import BaseModel
+
+class UserInfo(BaseModel):
+    name: str
+    age: int
+
+result = await agent.run("Alice is 30 years old", response_format=UserInfo)
+# result is UserInfo(name="Alice", age=30)
+```
+
+When `response_format` is set:
+- **Tools are suppressed** — structured extraction mode, not agent tool-calling mode
+- **Schema is strict** — OpenAI's `json_schema` mode with `strict: true` guarantees the output matches your model
+- **Planning is skipped** — no multi-step planning for extraction tasks
+
+Works with both streaming and non-streaming modes. Nested models are supported (via `$defs`).
+
 ## Getting Started
 
 ```bash
