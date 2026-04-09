@@ -1,5 +1,7 @@
 """Tests for the retriever module (Document, TextSplitter, BM25Retriever)."""
 
+import pytest
+
 from toy_agent.retriever import BM25Retriever, Document, TextSplitter
 
 
@@ -102,3 +104,54 @@ class TestBM25Retriever:
 
         # Should have multiple chunks
         assert len(retriever._chunks) > 1
+
+
+class TestAgentRetrieverIntegration:
+    @pytest.mark.anyio
+    async def test_retriever_injects_context(self):
+        """Agent with retriever injects relevant context into messages."""
+        from unittest.mock import MagicMock
+
+        from toy_agent.agent import Agent
+
+        retriever = BM25Retriever()
+        retriever.index([Document(content="Python is a programming language")])
+
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = [MagicMock()]
+        response.choices[0].message.tool_calls = None
+        response.choices[0].message.content = "Python is a programming language"
+        client.chat.completions.create.return_value = response
+
+        agent = Agent(client=client, retriever=retriever)
+        await agent.run("What is Python?")
+
+        # Verify the RAG context message was injected before the LLM call
+        call_kwargs = client.chat.completions.create.call_args.kwargs
+        messages = call_kwargs["messages"]
+        rag_messages = [m for m in messages if m.get("content", "").startswith("[Retrieved context]")]
+        assert len(rag_messages) == 1
+        assert "Python" in rag_messages[0]["content"]
+
+    @pytest.mark.anyio
+    async def test_no_retriever_no_injection(self):
+        """Agent without retriever works normally (no context injection)."""
+        from unittest.mock import MagicMock
+
+        from toy_agent.agent import Agent
+
+        client = MagicMock()
+        response = MagicMock()
+        response.choices = [MagicMock()]
+        response.choices[0].message.tool_calls = None
+        response.choices[0].message.content = "Hello"
+        client.chat.completions.create.return_value = response
+
+        agent = Agent(client=client)
+        await agent.run("hi")
+
+        call_kwargs = client.chat.completions.create.call_args.kwargs
+        messages = call_kwargs["messages"]
+        rag_messages = [m for m in messages if m.get("content", "").startswith("[Retrieved context]")]
+        assert len(rag_messages) == 0
