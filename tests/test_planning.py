@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from toy_agent.agent import Agent
-from toy_agent.planning import Plan, PlanHook, PlanStep
+from toy_agent.planning import Plan, PlanHook, PlanStep, ReActPlanHook
 
 
 class TestDataclasses:
@@ -239,3 +239,197 @@ class TestAgentPlanIntegration:
 
         assert result == "It's 3pm"
         assert not any("Goal:" in m.get("content", "") for m in agent.messages if m.get("role") == "assistant")
+
+
+class TestReActPlanHookOnBeforeLoop:
+    @pytest.mark.anyio
+    async def test_injects_system_hint_no_api_calls(self):
+        """ReActPlanHook injects guidance prompt without any LLM API calls."""
+        client = MagicMock()
+        text_msg = MagicMock()
+        text_msg.content = "Direct answer"
+        text_msg.tool_calls = None
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+
+        hook = ReActPlanHook()
+        agent = Agent(client=client, hooks=[hook])
+        await agent.run("Hello")
+
+        # Only 1 API call (the main agent loop), no extra planning calls
+        assert client.chat.completions.create.call_count == 1
+        # System hint injected as assistant message
+        assert any("complex task" in m.get("content", "") for m in agent.messages if m.get("role") == "assistant")
+
+    @pytest.mark.anyio
+    async def test_stores_agent_reference(self):
+        """ReActPlanHook stores agent reference after on_before_loop."""
+        client = MagicMock()
+        text_msg = MagicMock()
+        text_msg.content = "Done"
+        text_msg.tool_calls = None
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+
+        hook = ReActPlanHook()
+        agent = Agent(client=client, hooks=[hook])
+        await agent.run("Hello")
+
+        assert hook._agent is agent
+
+
+class TestReActPlanHookPlanParsing:
+    def test_parses_plan_declaration(self):
+        """on_message parses a plan with Goal + numbered steps."""
+        hook = ReActPlanHook()
+        hook._agent = MagicMock()
+
+        hook.on_message(
+            role="assistant",
+            content="Let me plan this.\nGoal: Analyze code\n\n1. Scan structure\n2. Check quality\n3. Summarize",
+        )
+
+        assert hook._plan is not None
+        assert hook._plan.goal == "Analyze code"
+        assert len(hook._plan.steps) == 3
+        assert hook._plan.steps[0].description == "Scan structure"
+        hook._agent._emit.assert_called_once_with("on_plan", plan=hook._plan)
+
+    def test_no_plan_without_goal(self):
+        """on_message does not parse a plan without Goal line."""
+        hook = ReActPlanHook()
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="1. Do this\n2. Do that")
+
+        assert hook._plan is None
+
+    def test_no_plan_without_numbered_steps(self):
+        """on_message does not parse a plan without numbered steps."""
+        hook = ReActPlanHook()
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="Goal: Something\nJust a thought")
+
+        assert hook._plan is None
+
+
+class TestReActPlanHookStepDetection:
+    def test_detects_step_complete_marker(self):
+        """on_message detects [Step X complete] and updates step status."""
+        hook = ReActPlanHook()
+        hook._plan = Plan(
+            goal="Test",
+            steps=[PlanStep(id=1, description="First"), PlanStep(id=2, description="Second")],
+        )
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="I did the first thing. [Step 1 complete]")
+
+        assert hook._plan.steps[0].status == "done"
+        assert hook._plan.steps[1].status == "pending"
+
+    def test_detects_step_skipped_marker(self):
+        """on_message detects [Step X skipped] and updates step status."""
+        hook = ReActPlanHook()
+        hook._plan = Plan(
+            goal="Test",
+            steps=[PlanStep(id=1, description="First"), PlanStep(id=2, description="Second")],
+        )
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="Not needed. [Step 1 skipped]")
+
+        assert hook._plan.steps[0].status == "skipped"
+
+    def test_fires_plan_done_when_all_steps_complete(self):
+        """on_plan_done fires when the last pending step is resolved."""
+        hook = ReActPlanHook()
+        hook._plan = Plan(
+            goal="Test",
+            steps=[PlanStep(id=1, description="First", status="done"), PlanStep(id=2, description="Second")],
+        )
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="Finished. [Step 2 complete]")
+
+        assert hook._plan.steps[1].status == "done"
+        calls = hook._agent._emit.call_args_list
+        assert any(c[0][0] == "on_plan_done" for c in calls)
+
+    def test_ignores_non_assistant_messages(self):
+        """on_message ignores user messages."""
+        hook = ReActPlanHook()
+        hook._plan = Plan(goal="Test", steps=[PlanStep(id=1, description="First")])
+        hook._agent = MagicMock()
+
+        hook.on_message(role="user", content="[Step 1 complete]")
+
+        assert hook._plan.steps[0].status == "pending"
+        hook._agent._emit.assert_not_called()
+
+    def test_no_double_fire_for_same_step(self):
+        """A step marker appearing twice only fires on_plan_step once."""
+        hook = ReActPlanHook()
+        hook._plan = Plan(goal="Test", steps=[PlanStep(id=1, description="First")])
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="[Step 1 complete] and again [Step 1 complete]")
+
+        assert hook._plan.steps[0].status == "done"
+        step_calls = [c for c in hook._agent._emit.call_args_list if c[0][0] == "on_plan_step"]
+        assert len(step_calls) == 1
+
+    def test_multiple_markers_in_one_message(self):
+        """Multiple step markers in one message are all detected."""
+        hook = ReActPlanHook()
+        hook._plan = Plan(
+            goal="Test",
+            steps=[PlanStep(id=1, description="First"), PlanStep(id=2, description="Second")],
+        )
+        hook._agent = MagicMock()
+
+        hook.on_message(role="assistant", content="[Step 1 complete] and [Step 2 skipped]")
+
+        assert hook._plan.steps[0].status == "done"
+        assert hook._plan.steps[1].status == "skipped"
+        assert hook._agent._emit.call_count == 3
+
+
+class TestReActPlanHookIntegration:
+    @pytest.mark.anyio
+    async def test_no_extra_api_calls(self):
+        """ReActPlanHook makes zero extra LLM API calls."""
+        client = MagicMock()
+        text_msg = MagicMock()
+        text_msg.content = "Direct answer"
+        text_msg.tool_calls = None
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+
+        hook = ReActPlanHook()
+        agent = Agent(client=client, hooks=[hook])
+        await agent.run("Hello")
+
+        assert client.chat.completions.create.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_model_self_plans_and_tracks(self):
+        """End-to-end: model declares plan, reports steps, events fire."""
+        client = MagicMock()
+
+        text_msg = MagicMock()
+        text_msg.content = (
+            "Let me plan.\nGoal: Do things\n\n1. First thing\n2. Second thing\n\n"
+            "Done first. [Step 1 complete]\nDone second. [Step 2 complete]"
+        )
+        text_msg.tool_calls = None
+
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+
+        hook = ReActPlanHook()
+        mock_hook = MagicMock()
+        agent = Agent(client=client, hooks=[hook, mock_hook])
+        await agent.run("Do things")
+
+        # Only 1 API call (main loop), no extra planning calls
+        assert client.chat.completions.create.call_count == 1
+        mock_hook.on_plan_step.assert_called()
+        mock_hook.on_plan_done.assert_called_once()

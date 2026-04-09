@@ -15,7 +15,7 @@ toy-agent/
 │   ├── hooks.py               # AgentHook observability system
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── memory.py               # Session persistence
-│   ├── planning.py             # PlanHook (LLM-driven task planning)
+│   ├── planning.py             # PlanHook + ReActPlanHook (task planning)
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
 │   └── tools/
@@ -29,7 +29,7 @@ toy-agent/
 │   ├── test_context.py          # ContextCompressor tests
 │   ├── test_hooks.py            # Hook system tests
 │   ├── test_memory.py           # SessionMemory tests
-│   ├── test_planning.py         # PlanHook tests
+│   ├── test_planning.py         # Planning tests (both hooks)
 │   ├── test_skills.py           # Skills loader tests
 │   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
@@ -244,12 +244,16 @@ agent = Agent(client=client, max_tool_retries=2)  # retry up to 2 times
 
 ## Phase 10: Planning
 
-The agent can generate a step-by-step plan before executing complex tasks. Plans are injected as context, and the agent follows them adaptively.
+Two planning strategies are provided to demonstrate different approaches used in agent frameworks. Both are implemented as pluggable hooks — swap one for the other by changing the hooks list.
+
+### PlanHook (Plan-then-Execute)
+
+Uses separate LLM API calls to classify tasks and generate step-by-step plans before execution. This is the classic "Plan-and-Solve" pattern found in early agent frameworks (e.g., LangChain's Plan-and-Solve executor).
 
 ```python
-from toy_agent.planning import PlanHook, Plan
+from toy_agent.planning import PlanHook
 
-# Auto mode (default): LLM decides when to plan
+# Auto mode: LLM decides when to plan
 agent = Agent(
     client=client,
     hooks=[ConsoleHook(), PlanHook(client=client, model="gpt-4o-mini", auto=True)],
@@ -260,10 +264,31 @@ result = await agent.run("Analyze the codebase", plan=True)   # force plan
 result = await agent.run("Quick question", plan=False)         # skip plan
 ```
 
-- `PlanHook` uses a separate LLM call to classify tasks and generate plans
+- 1-2 extra LLM API calls per run (classify + generate)
 - Plans use JSON structured output (`response_format`)
 - `on_plan` hook event fires when a plan is generated
-- `ConsoleHook.on_plan` prints the plan to stdout
+
+### ReActPlanHook (Model Self-Planning)
+
+Injects a plan-aware prompt so the main model decides, plans, executes, and tracks progress all within its own context. No extra API calls. This mirrors how production-grade agents (Claude Code, Cursor, Devin) handle planning — planning is not a separate phase but part of the model's natural reasoning.
+
+```python
+from toy_agent.planning import ReActPlanHook
+
+agent = Agent(
+    client=client,
+    hooks=[ConsoleHook(), ReActPlanHook()],
+)
+```
+
+- Zero extra API calls — planning happens within the main agent loop
+- The model self-reports step completion via `[Step X complete]` markers
+- `on_plan_step` / `on_plan_done` hook events fire as steps complete
+- `ConsoleHook` prints step progress and plan summary
+
+### Why Both Exist
+
+In production agents, planning is typically just part of the system prompt — no separate hook is needed. These two hooks are preserved as **learning examples** to illustrate the evolution from explicit planning (PlanHook) to the model-driven approach (ReActPlanHook) that production agents actually use.
 
 ## Getting Started
 

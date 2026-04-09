@@ -13,7 +13,7 @@ from toy_agent.context import ContextCompressor
 from toy_agent.hooks import ConsoleHook
 from toy_agent.mcp import MCPClient
 from toy_agent.memory import SessionMemory
-from toy_agent.planning import PlanHook
+from toy_agent.planning import ReActPlanHook
 from toy_agent.skills import load_skills
 from toy_agent.subagent import SubAgentTool
 from toy_agent.tools import TOOLS
@@ -94,7 +94,7 @@ async def async_main():
     all_tools = regular_tools + [researcher]
     print(f"[tools] {len(all_tools)} tools loaded ({len(TOOLS)} built-in, {len(mcp_tools)} MCP, 1 subagent)\n")
     print(f"[skills] {len(skills)} skills loaded\n")
-    print("[plan] auto-planning enabled\n")
+    print("[plan] ReAct planning enabled (model self-tracks step progress)\n")
 
     stream = os.getenv("TOY_AGENT_STREAM", "true").lower() in ("true", "1", "yes")
     context_token_limit = int(os.getenv("TOY_AGENT_CONTEXT_TOKEN_LIMIT", "80000"))
@@ -106,7 +106,7 @@ async def async_main():
         tools=all_tools,
         skills=skills,
         stream=stream,
-        hooks=[ConsoleHook(), PlanHook(client=client, model=model, auto=True)],
+        hooks=[ConsoleHook(), ReActPlanHook()],
     )
 
     # Session memory

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 from openai import OpenAI
@@ -54,6 +55,16 @@ I've created a plan to accomplish your task:
 
 I will execute this plan step by step, adapting as needed based on intermediate results."""
 
+_REACT_SYSTEM_HINT = """\
+When working on a complex task, follow this workflow:
+1. Analyze the task and decide if a multi-step plan is needed
+2. If yes, state the plan clearly with numbered steps (Goal + Steps)
+3. Execute step by step, marking each completed step with [Step X complete]
+4. If a step becomes unnecessary, mark it with [Step X skipped]
+5. After all steps are done, provide a final summary
+
+For simple questions or single operations, respond directly without planning."""
+
 
 class PlanHook(AgentHook):
     """Hook that generates and injects plans before agent execution.
@@ -103,9 +114,7 @@ class PlanHook(AgentHook):
             if not plan:
                 return
 
-            agent._emit("on_plan", plan=plan)
-            plan_text = self._format_plan(plan)
-            agent.messages.append({"role": "assistant", "content": _EXECUTION_CONTEXT.format(plan_text=plan_text)})
+            self._inject_plan(plan, agent)
         finally:
             self._plan_override = None
 
@@ -138,9 +147,84 @@ class PlanHook(AgentHook):
         except Exception:
             return None
 
+    def _inject_plan(self, plan: Plan, agent) -> None:
+        """Emit on_plan event and inject plan as assistant message."""
+        agent._emit("on_plan", plan=plan)
+        plan_text = self._format_plan(plan)
+        agent.messages.append({"role": "assistant", "content": _EXECUTION_CONTEXT.format(plan_text=plan_text)})
+
     def _format_plan(self, plan: Plan) -> str:
         """Format plan as readable text for injection."""
         lines = [f"Goal: {plan.goal}", "", "Steps:"]
         for step in plan.steps:
             lines.append(f"  {step.id}. {step.description}")
         return "\n".join(lines)
+
+
+class ReActPlanHook(AgentHook):
+    """Hook that adds plan-and-execute guidance to the main agent context.
+
+    Unlike PlanHook which makes separate LLM calls to classify and generate plans,
+    ReActPlanHook injects a plan-aware prompt into the conversation so the main model
+    decides, plans, executes, and tracks progress all within its own context.
+
+    The model self-reports step completion via markers like [Step X complete].
+    on_message detects these markers and fires on_plan_step / on_plan_done events.
+    """
+
+    _STEP_PATTERN = re.compile(r"\[Step (\d+) (complete|skipped)\]")
+    _GOAL_PATTERN = re.compile(r"Goal:\s*(.+)")
+    _STEP_DESC_PATTERN = re.compile(r"\d+\.\s*(.+)")
+
+    def __init__(self):
+        self._agent = None
+        self._plan: Plan | None = None
+
+    def set_plan_override(self, value: bool | None) -> None:
+        """No-op: ReActPlanHook does not use plan overrides."""
+
+    async def on_before_loop(self, *, agent) -> None:
+        """Inject plan-and-execute guidance into the conversation."""
+        self._agent = agent
+        self._plan = None
+        agent.messages.append({"role": "assistant", "content": _REACT_SYSTEM_HINT})
+
+    def on_message(self, *, role: str, content: str) -> None:
+        """Detect plan declarations and step-completion markers in assistant messages."""
+        if role != "assistant" or not content or self._agent is None:
+            return
+
+        self._try_parse_plan(content)
+        self._try_track_steps(content)
+
+    def _try_parse_plan(self, content: str) -> None:
+        """Parse a plan declaration from the model's response."""
+        goal_match = self._GOAL_PATTERN.search(content)
+        if not goal_match:
+            return
+
+        step_descs = self._STEP_DESC_PATTERN.findall(content)
+        if not step_descs:
+            return
+
+        steps = [PlanStep(id=i + 1, description=desc.strip()) for i, desc in enumerate(step_descs)]
+        self._plan = Plan(goal=goal_match.group(1).strip(), steps=steps)
+        self._agent._emit("on_plan", plan=self._plan)
+
+    def _try_track_steps(self, content: str) -> None:
+        """Detect step-completion markers and fire events."""
+        if self._plan is None:
+            return
+
+        for match in self._STEP_PATTERN.finditer(content):
+            step_id = int(match.group(1))
+            status = "done" if match.group(2) == "complete" else "skipped"
+
+            for step in self._plan.steps:
+                if step.id == step_id and step.status == "pending":
+                    step.status = status
+                    self._agent._emit("on_plan_step", step=step, plan=self._plan)
+                    break
+
+        if all(s.status in ("done", "skipped") for s in self._plan.steps):
+            self._agent._emit("on_plan_done", plan=self._plan)

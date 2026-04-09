@@ -91,3 +91,12 @@ class ConsoleHook(AgentHook):
         for step in plan.steps:
             lines.append(f"  {step.id}. {step.description}")
         print("\n".join(lines))
+
+    def on_plan_step(self, *, step, plan) -> None:
+        mark = "+" if step.status == "done" else "-"
+        print(f"[plan] {mark} Step {step.id}: {step.description} [{step.status}]")
+
+    def on_plan_done(self, *, plan) -> None:
+        done = sum(1 for s in plan.steps if s.status == "done")
+        skipped = sum(1 for s in plan.steps if s.status == "skipped")
+        print(f"[plan] All steps resolved ({done} done, {skipped} skipped)")

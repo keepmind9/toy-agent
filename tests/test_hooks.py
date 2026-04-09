@@ -95,3 +95,48 @@ class TestConsoleHookPlanOutput:
         assert "[plan]" in captured.out
         assert "Analyze code quality" in captured.out
         assert "Scan project structure" in captured.out
+
+
+class TestConsoleHookPlanStepOutput:
+    def test_on_plan_step_done_prints(self, capsys):
+        """on_plan_step prints step completion."""
+        from toy_agent.planning import Plan, PlanStep
+
+        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="First")])
+        plan.steps[0].status = "done"
+        hook = ConsoleHook()
+        hook.on_plan_step(step=plan.steps[0], plan=plan)
+        captured = capsys.readouterr()
+        assert "[plan]" in captured.out
+        assert "Step 1" in captured.out
+        assert "done" in captured.out
+
+    def test_on_plan_step_skipped_prints(self, capsys):
+        """on_plan_step prints step skipped."""
+        from toy_agent.planning import Plan, PlanStep
+
+        plan = Plan(goal="Test", steps=[PlanStep(id=2, description="Second")])
+        plan.steps[0].status = "skipped"
+        hook = ConsoleHook()
+        hook.on_plan_step(step=plan.steps[0], plan=plan)
+        captured = capsys.readouterr()
+        assert "[plan]" in captured.out
+        assert "skipped" in captured.out
+
+    def test_on_plan_done_prints_summary(self, capsys):
+        """on_plan_done prints completion summary."""
+        from toy_agent.planning import Plan, PlanStep
+
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(id=1, description="First", status="done"),
+                PlanStep(id=2, description="Second", status="skipped"),
+            ],
+        )
+        hook = ConsoleHook()
+        hook.on_plan_done(plan=plan)
+        captured = capsys.readouterr()
+        assert "[plan]" in captured.out
+        assert "1 done" in captured.out
+        assert "1 skipped" in captured.out
