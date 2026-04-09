@@ -108,3 +108,38 @@ class BM25Retriever(BaseRetriever):
 
         tokenized_corpus = [chunk.content.lower().split() for chunk in self._chunks]
         self._bm25 = BM25Okapi(tokenized_corpus)
+
+    @classmethod
+    def from_directory(
+        cls, directory: str, splitter: TextSplitter | None = None, extensions: tuple[str, ...] = (".md", ".txt", ".rst")
+    ) -> BM25Retriever | None:
+        """Build a retriever from all text files in a directory.
+
+        Returns None if the directory doesn't exist or contains no readable documents.
+        """
+        import glob
+        import os
+
+        if not os.path.isdir(directory):
+            return None
+
+        files: list[str] = []
+        for ext in extensions:
+            files.extend(glob.glob(os.path.join(directory, f"*{ext}")))
+
+        if not files:
+            return None
+
+        retriever = cls(splitter=splitter)
+        for filepath in files:
+            try:
+                content = open(filepath).read()
+                if content.strip():
+                    retriever.index([Document(content=content, metadata={"source": filepath})])
+            except OSError:
+                continue
+
+        if not retriever._chunks:
+            return None
+
+        return retriever

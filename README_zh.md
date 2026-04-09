@@ -12,11 +12,13 @@ toy-agent/
 ├── toy_agent/
 │   ├── agent.py                # Agent loop 核心
 │   ├── config.py               # 多级配置加载
+│   ├── context.py              # ContextCompressor + HermesContextCompressor
 │   ├── hooks.py               # AgentHook 观测系统
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
 │   ├── memory.py               # 会话持久化
 │   ├── planning.py             # PlanHook + ReActPlanHook (任务规划)
 │   ├── guardrails.py           # GuardrailHook (人工审批)
+│   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
 │   ├── skills.py              # Skills 加载器
 │   ├── subagent.py            # SubAgentTool（Tool-call 模式）
 │   └── tools/
@@ -32,7 +34,9 @@ toy-agent/
 │   ├── test_planning.py          # Planning 测试
 │   ├── test_guardrails.py        # Guardrails 测试
 │   ├── test_memory.py            # SessionMemory 测试
+│   ├── test_retriever.py         # RAG 检索器测试
 │   ├── test_skills.py           # Skills 加载器测试
+│   ├── test_structured_output.py # 结构化输出测试
 │   └── test_subagent.py         # SubAgentTool 测试
 ├── .env.example
 ├── Makefile
@@ -213,7 +217,7 @@ agent = Agent(client=client, compressor=compressor)
 |------|------|------|
 | 1. 工具输出裁剪 | 将老的长 tool result 替换为占位符 | 零 |
 | 2. 边界确定 | 按 token 预算保护头部/尾部，对齐边界避免截断 tool 配对 | 零 |
-| 3. 结构化摘要 | 8 段式 handoff 摘要（Goal、Progress、Decisions 等），支持增量更新 | 1 次 LLM 调用 |
+| 3. 结构化摘要 | 10 段式 handoff 摘要（Goal、Progress、Decisions 等），支持增量更新 | 1 次 LLM 调用 |
 | 4. 组装 + 修复 | 角色交替检查、修复孤立的 tool_call/result 配对 | 零 |
 
 ```python
@@ -256,10 +260,16 @@ agent = Agent(client=client, hooks=[MyHook()])
 | `on_message` | 消息追加到历史 | `role`, `content` |
 | `on_llm_request` | 发送 LLM 请求前 | `messages` |
 | `on_llm_response` | 收到 LLM 回复后 | `message` |
+| `on_before_loop` | agent 循环开始前（async） | `agent` |
 | `on_tool_call` | 工具执行前 | `tool_name`, `arguments` |
 | `on_tool_result` | 工具返回后 | `tool_name`, `result` |
+| `on_tool_approve` | 工具执行前（护栏） | `tool_name`, `arguments` |
 | `on_tool_retry` | 重试前 | `tool_name`, `attempt`, `error` |
+| `on_guardrail_block` | 工具被护栏阻止 | `tool_name`, `arguments`, `reason` |
 | `on_compress` | 上下文压缩后 | `before_count`, `after_count` |
+| `on_plan` | 计划生成 | `plan` |
+| `on_plan_step` | 计划步骤完成 | — |
+| `on_plan_done` | 所有步骤完成 | — |
 | `on_error` | 发生错误时 | `error` |
 
 ### 工具重试
@@ -376,14 +386,21 @@ result = await agent.run("Alice 今年 30 岁", response_format=UserInfo)
 
 ## Phase 13: RAG（检索增强生成）
 
-让 agent 按需从知识库中检索信息。RAG 作为两个工具（`rag_index`、`rag_search`）暴露给 LLM，由 LLM 决定何时调用。
+每次 LLM 调用前自动检索相关知识并注入上下文。LLM 看到的是已增强的上下文，无需主动搜索。
 
-**两个 RAG 工具（自动注册）：**
+```python
+from toy_agent.retriever import BM25Retriever, Document
 
-| 工具 | 用途 |
-|------|------|
-| `rag_index(content, source)` | 将文档加入知识库 |
-| `rag_search(query, top_k)` | 检索相关文本块 |
+retriever = BM25Retriever()
+retriever.index([Document(content="Python 是一种编程语言", metadata={"source": "faq"})])
+
+agent = Agent(client=client, retriever=retriever)
+# 每次 run() 自动注入相关上下文——LLM 基于已索引的文档回答
+```
+
+**配置：**
+
+在 `.env` 中设置 `TOY_AGENT_KNOWLEDGE_DIR` 指向文档目录（支持 `.md`、`.txt`、`.rst`）。启动时自动索引所有文件。目录不存在时 RAG 静默禁用。
 
 **可替换架构：**
 
@@ -395,7 +412,7 @@ retriever.py
   └── BM25Retriever      — 基于关键词检索（rank_bm25）
 ```
 
-`BaseRetriever` 是抽象类——可以替换为基于 embedding 的实现，无需改动 tool 层。
+`BaseRetriever` 是抽象类——可以替换为基于 embedding 的实现，无需改动 agent。
 
 ## 快速开始
 

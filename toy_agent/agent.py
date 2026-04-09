@@ -80,6 +80,7 @@ class Agent:
         stream: bool = False,
         memory: SessionMemory | None = None,
         compressor: ContextCompressor | None = None,
+        retriever: Any | None = None,
         hooks: list[AgentHook] | None = None,
         max_tool_retries: int = 0,
     ):
@@ -90,6 +91,7 @@ class Agent:
         self.stream = stream
         self.memory = memory
         self.compressor = compressor
+        self.retriever = retriever
         self.hooks = hooks or []
         self.max_tool_retries = max_tool_retries
         self.system = self._build_system_prompt(system)
@@ -180,6 +182,17 @@ class Agent:
                 await result
 
         before_count = len(self.messages)
+
+        # RAG: inject relevant context from retriever
+        if self.retriever:
+            last_user_msg = next((m["content"] for m in reversed(self.messages) if m["role"] == "user"), None)
+            if last_user_msg:
+                docs = self.retriever.query(last_user_msg, top_k=3)
+                if docs:
+                    context = "\n\n".join(d.content for d in docs)
+                    rag_msg = {"role": "system", "content": f"[Retrieved context]\n{context}"}
+                    self.messages.insert(-1, rag_msg)
+
         if self.compressor:
             self.messages = self.compressor.compress(self.messages)
             if len(self.messages) < before_count:

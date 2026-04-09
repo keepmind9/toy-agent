@@ -15,6 +15,7 @@ from toy_agent.hooks import ConsoleHook
 from toy_agent.mcp import MCPClient
 from toy_agent.memory import SessionMemory
 from toy_agent.planning import ReActPlanHook
+from toy_agent.retriever import BM25Retriever
 from toy_agent.skills import load_skills
 from toy_agent.subagent import SubAgentTool
 from toy_agent.tools import TOOLS
@@ -100,6 +101,12 @@ async def async_main():
     stream = os.getenv("TOY_AGENT_STREAM", "true").lower() in ("true", "1", "yes")
     context_token_limit = int(os.getenv("TOY_AGENT_CONTEXT_TOKEN_LIMIT", "80000"))
 
+    # RAG: index documents from configured directory (graceful no-op if missing)
+    knowledge_dir = os.getenv("TOY_AGENT_KNOWLEDGE_DIR", "knowledge")
+    retriever = BM25Retriever.from_directory(knowledge_dir)
+    if retriever:
+        print(f"[rag] {len(retriever._chunks)} chunks indexed from {knowledge_dir}/\n")
+
     agent = Agent(
         client=client,
         model=model,
@@ -107,6 +114,7 @@ async def async_main():
         tools=all_tools,
         skills=skills,
         stream=stream,
+        retriever=retriever,
         hooks=[ConsoleHook(), ReActPlanHook(), GuardrailHook()],
     )
 

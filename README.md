@@ -12,11 +12,13 @@ toy-agent/
 ├── toy_agent/
 │   ├── agent.py                # Agent loop core
 │   ├── config.py               # Multi-level config loader
+│   ├── context.py              # ContextCompressor + HermesContextCompressor
 │   ├── hooks.py               # AgentHook observability system
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── memory.py               # Session persistence
 │   ├── planning.py             # PlanHook + ReActPlanHook (task planning)
 │   ├── guardrails.py           # GuardrailHook (human-in-the-loop approval)
+│   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
 │   └── tools/
@@ -32,7 +34,9 @@ toy-agent/
 │   ├── test_memory.py           # SessionMemory tests
 │   ├── test_planning.py         # Planning tests (both hooks)
 │   ├── test_guardrails.py       # Guardrails tests
+│   ├── test_retriever.py        # RAG retriever tests
 │   ├── test_skills.py           # Skills loader tests
+│   ├── test_structured_output.py # Structured output tests
 │   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
 ├── Makefile
@@ -213,7 +217,7 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/Hermes-Agent). Uses a
 |-------|--------|------|
 | 1. Tool output pruning | Replace old long tool results with placeholders | Zero |
 | 2. Boundary determination | Protect head/tail by token budget, align boundaries to avoid splitting tool pairs | Zero |
-| 3. Structured summarization | 8-section handoff summary (Goal, Progress, Decisions, etc.) with incremental updates | 1 LLM call |
+| 3. Structured summarization | 10-section handoff summary (Goal, Progress, Decisions, etc.) with incremental updates | 1 LLM call |
 | 4. Assembly + sanitization | Role alternation check, repair orphaned tool_call/result pairs | Zero |
 
 ```python
@@ -256,10 +260,16 @@ agent = Agent(client=client, hooks=[MyHook()])
 | `on_message` | message appended to history | `role`, `content` |
 | `on_llm_request` | before LLM API call | `messages` |
 | `on_llm_response` | after LLM response | `message` |
+| `on_before_loop` | before agent loop starts (async) | `agent` |
 | `on_tool_call` | before tool execution | `tool_name`, `arguments` |
 | `on_tool_result` | after tool returns | `tool_name`, `result` |
+| `on_tool_approve` | before tool execution (guardrail) | `tool_name`, `arguments` |
 | `on_tool_retry` | before retry attempt | `tool_name`, `attempt`, `error` |
+| `on_guardrail_block` | tool blocked by guardrail | `tool_name`, `arguments`, `reason` |
 | `on_compress` | after context compression | `before_count`, `after_count` |
+| `on_plan` | plan generated | `plan` |
+| `on_plan_step` | plan step completed | — |
+| `on_plan_done` | all plan steps done | — |
 | `on_error` | on any error | `error` |
 
 ### Tool Retry
@@ -376,21 +386,21 @@ Works with both streaming and non-streaming modes. Nested models are supported (
 
 ## Phase 13: RAG (Retrieval-Augmented Generation)
 
-Let the agent retrieve information from a knowledge base on demand. RAG is exposed as two tools (`rag_index`, `rag_search`) that the LLM decides when to call.
+Automatically retrieve relevant knowledge and inject it into the agent's context before each LLM call. The LLM sees enriched context without needing to explicitly search.
 
 ```python
 from toy_agent.retriever import BM25Retriever, Document
 
-# Or just let the LLM use the tools directly:
-# Agent sees rag_index and rag_search in its tool list automatically.
+retriever = BM25Retriever()
+retriever.index([Document(content="Python is a programming language", metadata={"source": "faq"})])
+
+agent = Agent(client=client, retriever=retriever)
+# Each run() auto-injects relevant context — LLM answers with knowledge from indexed docs
 ```
 
-**Two RAG tools (auto-registered):**
+**Configuration:**
 
-| Tool | Purpose |
-|------|---------|
-| `rag_index(content, source)` | Add a document to the knowledge base |
-| `rag_search(query, top_k)` | Search for relevant chunks |
+Set `TOY_AGENT_KNOWLEDGE_DIR` in `.env` to a directory of text files (`.md`, `.txt`, `.rst`). All files are auto-indexed on startup. If the directory doesn't exist, RAG is silently disabled.
 
 **Architecture (swappable):**
 
@@ -402,7 +412,7 @@ retriever.py
   └── BM25Retriever      — keyword-based retrieval (rank_bm25)
 ```
 
-`BaseRetriever` is an abstract class — swap `BM25Retriever` for an embedding-based implementation without changing the tool layer.
+`BaseRetriever` is an abstract class — swap `BM25Retriever` for an embedding-based implementation without changing the agent.
 
 ## Getting Started
 
