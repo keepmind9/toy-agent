@@ -86,8 +86,7 @@ class ConsoleHook(AgentHook):
     """
 
     def on_message(self, *, role: str, content: str) -> None:
-        if role == "user" and content:
-            print(f"You: {content[:100]}")
+        pass
 
     def on_tool_call(self, *, tool_name: str, arguments: dict) -> None:
         print(f"  [tool] {tool_name}({arguments})")

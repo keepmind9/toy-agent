@@ -38,13 +38,12 @@ class TestAgentHook:
 
 
 class TestConsoleHookOutput:
-    def test_on_message_user_prints_prefix(self, capsys):
-        """on_message with role=user prints 'You:' prefix."""
+    def test_on_message_user_no_echo(self, capsys):
+        """on_message with role=user produces no output (input prompt already shows it)."""
         hook = ConsoleHook()
         hook.on_message(role="user", content="hello world")
         captured = capsys.readouterr()
-        assert "You:" in captured.out
-        assert "hello world" in captured.out
+        assert captured.out == ""
 
     def test_on_message_assistant_skips(self, capsys):
         """on_message with role=assistant produces no output."""
