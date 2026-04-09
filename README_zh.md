@@ -374,6 +374,29 @@ result = await agent.run("Alice 今年 30 岁", response_format=UserInfo)
 
 同时支持流式和非流式模式。支持嵌套模型（通过 `$defs`）。
 
+## Phase 13: RAG（检索增强生成）
+
+让 agent 按需从知识库中检索信息。RAG 作为两个工具（`rag_index`、`rag_search`）暴露给 LLM，由 LLM 决定何时调用。
+
+**两个 RAG 工具（自动注册）：**
+
+| 工具 | 用途 |
+|------|------|
+| `rag_index(content, source)` | 将文档加入知识库 |
+| `rag_search(query, top_k)` | 检索相关文本块 |
+
+**可替换架构：**
+
+```
+retriever.py
+  ├── Document           — 数据类（content + metadata）
+  ├── TextSplitter       — 固定大小分块 + overlap
+  ├── BaseRetriever      — 抽象接口（index + query）
+  └── BM25Retriever      — 基于关键词检索（rank_bm25）
+```
+
+`BaseRetriever` 是抽象类——可以替换为基于 embedding 的实现，无需改动 tool 层。
+
 ## 快速开始
 
 ```bash

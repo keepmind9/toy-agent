@@ -374,6 +374,36 @@ When `response_format` is set:
 
 Works with both streaming and non-streaming modes. Nested models are supported (via `$defs`).
 
+## Phase 13: RAG (Retrieval-Augmented Generation)
+
+Let the agent retrieve information from a knowledge base on demand. RAG is exposed as two tools (`rag_index`, `rag_search`) that the LLM decides when to call.
+
+```python
+from toy_agent.retriever import BM25Retriever, Document
+
+# Or just let the LLM use the tools directly:
+# Agent sees rag_index and rag_search in its tool list automatically.
+```
+
+**Two RAG tools (auto-registered):**
+
+| Tool | Purpose |
+|------|---------|
+| `rag_index(content, source)` | Add a document to the knowledge base |
+| `rag_search(query, top_k)` | Search for relevant chunks |
+
+**Architecture (swappable):**
+
+```
+retriever.py
+  ├── Document           — data class (content + metadata)
+  ├── TextSplitter       — fixed-size chunking with overlap
+  ├── BaseRetriever      — abstract interface (index + query)
+  └── BM25Retriever      — keyword-based retrieval (rank_bm25)
+```
+
+`BaseRetriever` is an abstract class — swap `BM25Retriever` for an embedding-based implementation without changing the tool layer.
+
 ## Getting Started
 
 ```bash
