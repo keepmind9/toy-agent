@@ -186,7 +186,11 @@ restored = memory.load_latest()
 
 ## Phase 8: Context Compression
 
-Three-level progressive context compression to prevent token overflow in long conversations. Full design: `docs/CONTEXT_COMPRESSION_STRATEGY.md`.
+Two compression strategies to prevent token overflow in long conversations.
+
+### ContextCompressor (Progressive)
+
+Three-level progressive compression. Only Level 1 is implemented.
 
 - **Level 1**: Turn summary — compress tool call chains into brief summaries
 - **Level 2**: Phase overview — merge early summaries into phase overviews (TODO)
@@ -199,7 +203,32 @@ compressor = ContextCompressor(client=client, model="gpt-4o-mini", token_limit=8
 agent = Agent(client=client, compressor=compressor)
 ```
 
-- Set `TOY_AGENT_CONTEXT_TOKEN_LIMIT` in `.env` to override the token limit (default: 80000)
+### HermesContextCompressor (4-Phase)
+
+Inspired by [Hermes Agent](https://github.com/NousResearch/Hermes-Agent). Uses a structured handoff summary with iterative updates that preserve information across multiple compressions.
+
+**4-phase compression (1 LLM call per compression):**
+
+| Phase | Action | Cost |
+|-------|--------|------|
+| 1. Tool output pruning | Replace old long tool results with placeholders | Zero |
+| 2. Boundary determination | Protect head/tail by token budget, align boundaries to avoid splitting tool pairs | Zero |
+| 3. Structured summarization | 8-section handoff summary (Goal, Progress, Decisions, etc.) with incremental updates | 1 LLM call |
+| 4. Assembly + sanitization | Role alternation check, repair orphaned tool_call/result pairs | Zero |
+
+```python
+from toy_agent.context import HermesContextCompressor
+
+compressor = HermesContextCompressor(client=client, model="gpt-4o-mini", token_limit=80000)
+agent = Agent(client=client, compressor=compressor)
+```
+
+Key features:
+- **Iterative summary updates**: subsequent compressions update the previous summary instead of re-summarizing from scratch
+- **Token-budget tail protection**: scales automatically with model context window size
+- **Tool pair integrity**: automatically repairs orphaned tool_call/result pairs after compression
+
+Set `TOY_AGENT_CONTEXT_TOKEN_LIMIT` in `.env` to override the token limit (default: 80000).
 
 ## Phase 9: Observability Hooks
 

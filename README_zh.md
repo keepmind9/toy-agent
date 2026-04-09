@@ -186,7 +186,11 @@ restored = memory.load_latest()
 
 ## Phase 8: 上下文压缩
 
-三级渐进式上下文压缩，防止长对话中的 token 溢出。完整设计见 `docs/CONTEXT_COMPRESSION_STRATEGY.md`。
+两种压缩策略，防止长对话中的 token 溢出。
+
+### ContextCompressor（渐进式）
+
+三级渐进式压缩，目前仅实现 Level 1。
 
 - **Level 1**：回合摘要 — 将工具调用链压缩为简要摘要
 - **Level 2**：阶段概览 — 合并早期摘要（TODO）
@@ -199,7 +203,32 @@ compressor = ContextCompressor(client=client, model="gpt-4o-mini", token_limit=8
 agent = Agent(client=client, compressor=compressor)
 ```
 
-- 在 `.env` 中设置 `TOY_AGENT_CONTEXT_TOKEN_LIMIT` 可覆盖 token 阈值（默认：80000）
+### HermesContextCompressor（4 阶段）
+
+灵感来自 [Hermes Agent](https://github.com/NousResearch/Hermes-Agent)。使用结构化 handoff 摘要，支持增量更新，在多次压缩间保留信息。
+
+**4 阶段压缩（每次压缩仅需 1 次 LLM 调用）：**
+
+| 阶段 | 操作 | 成本 |
+|------|------|------|
+| 1. 工具输出裁剪 | 将老的长 tool result 替换为占位符 | 零 |
+| 2. 边界确定 | 按 token 预算保护头部/尾部，对齐边界避免截断 tool 配对 | 零 |
+| 3. 结构化摘要 | 8 段式 handoff 摘要（Goal、Progress、Decisions 等），支持增量更新 | 1 次 LLM 调用 |
+| 4. 组装 + 修复 | 角色交替检查、修复孤立的 tool_call/result 配对 | 零 |
+
+```python
+from toy_agent.context import HermesContextCompressor
+
+compressor = HermesContextCompressor(client=client, model="gpt-4o-mini", token_limit=80000)
+agent = Agent(client=client, compressor=compressor)
+```
+
+核心特性：
+- **增量摘要更新**：后续压缩时更新已有摘要，而非从头重新生成
+- **Token 预算动态保护**：尾部保护自动随模型上下文窗口大小缩放
+- **Tool pair 完整性**：压缩后自动修复孤立的 tool_call/result 配对
+
+在 `.env` 中设置 `TOY_AGENT_CONTEXT_TOKEN_LIMIT` 可覆盖 token 阈值（默认：80000）。
 
 ## Phase 9: 观测钩子（Hooks）
 
