@@ -9,7 +9,7 @@ from openai import OpenAI
 
 from toy_agent.agent import Agent
 from toy_agent.config import load_mcp_config
-from toy_agent.context import ContextCompressor
+from toy_agent.context import HermesContextCompressor
 from toy_agent.guardrails import GuardrailHook
 from toy_agent.hooks import ConsoleHook
 from toy_agent.mcp import MCPClient
@@ -115,7 +115,7 @@ async def async_main():
     agent.memory = memory
 
     # Context compression
-    compressor = ContextCompressor(client=client, model=model, token_limit=context_token_limit)
+    compressor = HermesContextCompressor(client=client, model=model, token_limit=context_token_limit)
     agent.compressor = compressor
 
     print(f"[stream] {'on' if stream else 'off'}")
