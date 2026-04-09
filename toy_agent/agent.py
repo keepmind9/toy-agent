@@ -17,6 +17,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from openai import APIError, OpenAI
+from pydantic import BaseModel
 
 from toy_agent.hooks import AgentHook
 from toy_agent.skills import Skill, get_skill
@@ -25,6 +26,34 @@ from toy_agent.tools import Tool
 if TYPE_CHECKING:
     from toy_agent.context import ContextCompressor
     from toy_agent.memory import SessionMemory
+
+
+def _add_additional_properties_false(schema: dict) -> dict:
+    """Recursively add additionalProperties: false for OpenAI strict mode."""
+    if schema.get("type") == "object":
+        schema.setdefault("additionalProperties", False)
+    for value in schema.values():
+        if isinstance(value, dict):
+            _add_additional_properties_false(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _add_additional_properties_false(item)
+    return schema
+
+
+def _pydantic_to_response_format(model: type[BaseModel]) -> dict:
+    """Convert a Pydantic model to OpenAI's response_format dict."""
+    schema = model.model_json_schema()
+    _add_additional_properties_false(schema)
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": model.__name__,
+            "strict": True,
+            "schema": schema,
+        },
+    }
 
 
 class Agent:
@@ -105,7 +134,13 @@ class Agent:
         return built_in + [t.schema for t in self.tools]
 
     async def run(
-        self, user_input: str, *, max_turns: int | None = None, stream: bool | None = None, plan: bool | None = None
+        self,
+        user_input: str,
+        *,
+        max_turns: int | None = None,
+        stream: bool | None = None,
+        plan: bool | None = None,
+        response_format: type[BaseModel] | None = None,
     ) -> str:
         """Run a complete agent loop and return the final answer.
 
@@ -116,6 +151,8 @@ class Agent:
             stream: Override streaming mode. If None, uses self.stream from constructor.
             plan: Override planning behavior. True forces plan generation, False skips it.
                   None leaves the decision to the PlanHook's auto setting.
+            response_format: Pydantic model for structured output. When set, tools are
+                             suppressed and the response is parsed into this model.
         """
         use_stream = stream if stream is not None else self.stream
         self.messages.append({"role": "user", "content": user_input})
@@ -144,18 +181,25 @@ class Agent:
             self._emit("on_llm_request", messages=self.messages)
 
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=self.messages,
-                    tools=self._all_tool_schemas or None,
-                    stream=use_stream,
-                )
+                api_kwargs: dict[str, Any] = {
+                    "model": self.model,
+                    "messages": self.messages,
+                    "stream": use_stream,
+                }
+                if response_format:
+                    api_kwargs["response_format"] = _pydantic_to_response_format(response_format)
+                    api_kwargs["tools"] = None
+                else:
+                    api_kwargs["tools"] = self._all_tool_schemas or None
+                response = self.client.chat.completions.create(**api_kwargs)
             except APIError as e:
                 self._emit("on_error", error=f"[API Error] {e.status_code}: {e.message}")
                 return f"[API Error] {e.status_code}: {e.message}"
 
             if use_stream:
-                return await self._process_stream(response, max_turns=max_turns, turn=turn)
+                return await self._process_stream(
+                    response, max_turns=max_turns, turn=turn, response_format=response_format
+                )
 
             message = response.choices[0].message
 
@@ -199,6 +243,8 @@ class Agent:
             self._emit("on_llm_response", message={"role": "assistant", "content": message.content})
             if self.memory:
                 self.memory.save(self.messages)
+            if response_format:
+                return response_format.model_validate_json(message.content)
             return message.content
 
     async def _check_guardrails(self, tool_name: str, arguments: dict) -> str | None:
@@ -252,7 +298,9 @@ class Agent:
 
         return f"Error: unknown tool '{fn_name}'"
 
-    async def _process_stream(self, stream, *, max_turns: int | None, turn: int) -> str:
+    async def _process_stream(
+        self, stream, *, max_turns: int | None, turn: int, response_format: type[BaseModel] | None = None
+    ) -> str:
         """Process a streaming response. Print tokens, handle tool calls."""
         collected_content = ""
         tool_calls_data: dict[int, dict] = {}
@@ -316,17 +364,22 @@ class Agent:
             self._emit("on_llm_request", messages=self.messages)
 
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=self.messages,
-                    tools=self._all_tool_schemas or None,
-                    stream=True,
-                )
+                api_kwargs: dict[str, Any] = {
+                    "model": self.model,
+                    "messages": self.messages,
+                    "stream": True,
+                }
+                if response_format:
+                    api_kwargs["response_format"] = _pydantic_to_response_format(response_format)
+                    api_kwargs["tools"] = None
+                else:
+                    api_kwargs["tools"] = self._all_tool_schemas or None
+                response = self.client.chat.completions.create(**api_kwargs)
             except APIError as e:
                 self._emit("on_error", error=f"[API Error] {e.status_code}: {e.message}")
                 return f"[API Error] {e.status_code}: {e.message}"
 
-            return await self._process_stream(response, max_turns=max_turns, turn=turn)
+            return await self._process_stream(response, max_turns=max_turns, turn=turn, response_format=response_format)
 
         # No tool calls — final answer
         final_message = {"role": "assistant", "content": collected_content}
@@ -335,4 +388,6 @@ class Agent:
         self._emit("on_message", role="assistant", content=collected_content)
         if self.memory:
             self.memory.save(self.messages)
+        if response_format:
+            return response_format.model_validate_json(collected_content)
         return collected_content
