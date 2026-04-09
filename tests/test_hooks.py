@@ -16,6 +16,10 @@ class TestAgentHook:
             "on_tool_retry",
             "on_compress",
             "on_error",
+            "on_plan",
+            "on_plan_step",
+            "on_plan_done",
+            "on_before_loop",
         ]
         for name in expected:
             assert hasattr(hook, name), f"missing method: {name}"
@@ -71,3 +75,23 @@ class TestConsoleHookOutput:
         captured = capsys.readouterr()
         assert "read_file" in captured.out
         assert "retry" in captured.out.lower()
+
+
+class TestConsoleHookPlanOutput:
+    def test_on_plan_prints_plan(self, capsys):
+        """on_plan prints the plan goal and steps."""
+        from toy_agent.planning import Plan, PlanStep
+
+        plan = Plan(
+            goal="Analyze code quality",
+            steps=[
+                PlanStep(id=1, description="Scan project structure"),
+                PlanStep(id=2, description="Analyze modules"),
+            ],
+        )
+        hook = ConsoleHook()
+        hook.on_plan(plan=plan)
+        captured = capsys.readouterr()
+        assert "[plan]" in captured.out
+        assert "Analyze code quality" in captured.out
+        assert "Scan project structure" in captured.out

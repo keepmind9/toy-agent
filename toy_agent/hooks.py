@@ -1,6 +1,12 @@
 """AgentHook: pluggable observability callbacks for the agent loop."""
 
+from __future__ import annotations
+
 from abc import ABC
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from toy_agent.planning import Plan, PlanStep
 
 
 class AgentHook(ABC):
@@ -44,6 +50,22 @@ class AgentHook(ABC):
         """Called when an error occurs."""
         ...
 
+    def on_plan(self, *, plan: Plan) -> None:
+        """Called when a plan is generated and injected into context."""
+        ...
+
+    def on_plan_step(self, *, step: PlanStep, plan: Plan) -> None:
+        """Called when a plan step status changes."""
+        ...
+
+    def on_plan_done(self, *, plan: Plan) -> None:
+        """Called when all plan steps are completed."""
+        ...
+
+    async def on_before_loop(self, *, agent) -> None:
+        """Called after user message is appended, before the agent ReAct loop starts."""
+        ...
+
 
 class ConsoleHook(AgentHook):
     """Default hook that prints human-readable event summaries to stdout.
@@ -63,3 +85,9 @@ class ConsoleHook(AgentHook):
 
     def on_error(self, *, error: str) -> None:
         print(f"[error] {error}")
+
+    def on_plan(self, *, plan) -> None:
+        lines = [f"[plan] Goal: {plan.goal}", "[plan] Steps:"]
+        for step in plan.steps:
+            lines.append(f"  {step.id}. {step.description}")
+        print("\n".join(lines))

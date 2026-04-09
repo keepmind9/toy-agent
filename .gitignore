@@ -22,6 +22,9 @@ temp
 CLAUDE.md
 
 docs/plans
+docs/agent.png
+docs/agent_patterns.md
+docs/FUTURE*
 
 .cache
 .pytest_cache

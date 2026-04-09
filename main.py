@@ -13,6 +13,7 @@ from toy_agent.context import ContextCompressor
 from toy_agent.hooks import ConsoleHook
 from toy_agent.mcp import MCPClient
 from toy_agent.memory import SessionMemory
+from toy_agent.planning import PlanHook
 from toy_agent.skills import load_skills
 from toy_agent.subagent import SubAgentTool
 from toy_agent.tools import TOOLS
@@ -93,6 +94,7 @@ async def async_main():
     all_tools = regular_tools + [researcher]
     print(f"[tools] {len(all_tools)} tools loaded ({len(TOOLS)} built-in, {len(mcp_tools)} MCP, 1 subagent)\n")
     print(f"[skills] {len(skills)} skills loaded\n")
+    print("[plan] auto-planning enabled\n")
 
     stream = os.getenv("TOY_AGENT_STREAM", "true").lower() in ("true", "1", "yes")
     context_token_limit = int(os.getenv("TOY_AGENT_CONTEXT_TOKEN_LIMIT", "80000"))
@@ -104,7 +106,7 @@ async def async_main():
         tools=all_tools,
         skills=skills,
         stream=stream,
-        hooks=[ConsoleHook()],
+        hooks=[ConsoleHook(), PlanHook(client=client, model=model, auto=True)],
     )
 
     # Session memory
@@ -165,12 +167,21 @@ async def async_main():
                     print()
                 continue
 
+            # Planning command: /plan <task> forces plan=True
+            plan_mode = False
+            if user_input.startswith("/plan "):
+                user_input = user_input[len("/plan ") :].strip()
+                plan_mode = True
+
+            if not user_input:
+                continue
+
             if stream:
                 print("Agent: ", end="", flush=True)
-                response = await agent.run(user_input)
+                response = await agent.run(user_input, plan=plan_mode or None)
                 print()
             else:
-                response = await agent.run(user_input)
+                response = await agent.run(user_input, plan=plan_mode or None)
                 print(f"Agent: {response}")
             print()
     finally:

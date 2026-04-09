@@ -104,7 +104,9 @@ class Agent:
         ]
         return built_in + [t.schema for t in self.tools]
 
-    async def run(self, user_input: str, *, max_turns: int | None = None, stream: bool | None = None) -> str:
+    async def run(
+        self, user_input: str, *, max_turns: int | None = None, stream: bool | None = None, plan: bool | None = None
+    ) -> str:
         """Run a complete agent loop and return the final answer.
 
         Args:
@@ -112,10 +114,20 @@ class Agent:
             max_turns: Maximum number of LLM API calls. If exceeded, returns an error.
                        None means no limit (runs until LLM stops calling tools).
             stream: Override streaming mode. If None, uses self.stream from constructor.
+            plan: Override planning behavior. True forces plan generation, False skips it.
+                  None leaves the decision to the PlanHook's auto setting.
         """
         use_stream = stream if stream is not None else self.stream
         self.messages.append({"role": "user", "content": user_input})
         self._emit("on_message", role="user", content=user_input)
+
+        # Planning phase: let hooks pre-process (e.g., generate and inject a plan)
+        for h in self.hooks:
+            if hasattr(h, "set_plan_override") and plan is not None:
+                h.set_plan_override(plan)
+            result = h.on_before_loop(agent=self)
+            if inspect.isawaitable(result):
+                await result
 
         before_count = len(self.messages)
         if self.compressor:

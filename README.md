@@ -15,6 +15,7 @@ toy-agent/
 │   ├── hooks.py               # AgentHook observability system
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── memory.py               # Session persistence
+│   ├── planning.py             # PlanHook (LLM-driven task planning)
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
 │   └── tools/
@@ -28,6 +29,7 @@ toy-agent/
 │   ├── test_context.py          # ContextCompressor tests
 │   ├── test_hooks.py            # Hook system tests
 │   ├── test_memory.py           # SessionMemory tests
+│   ├── test_planning.py         # PlanHook tests
 │   ├── test_skills.py           # Skills loader tests
 │   └── test_subagent.py         # SubAgentTool tests
 ├── .env.example
@@ -239,6 +241,29 @@ agent = Agent(client=client, max_tool_retries=2)  # retry up to 2 times
 
 - `on_tool_retry` hook fires before each retry attempt
 - Default: `max_tool_retries=0` (no retry, backward compatible)
+
+## Phase 10: Planning
+
+The agent can generate a step-by-step plan before executing complex tasks. Plans are injected as context, and the agent follows them adaptively.
+
+```python
+from toy_agent.planning import PlanHook, Plan
+
+# Auto mode (default): LLM decides when to plan
+agent = Agent(
+    client=client,
+    hooks=[ConsoleHook(), PlanHook(client=client, model="gpt-4o-mini", auto=True)],
+)
+
+# Force planning on/off per call
+result = await agent.run("Analyze the codebase", plan=True)   # force plan
+result = await agent.run("Quick question", plan=False)         # skip plan
+```
+
+- `PlanHook` uses a separate LLM call to classify tasks and generate plans
+- Plans use JSON structured output (`response_format`)
+- `on_plan` hook event fires when a plan is generated
+- `ConsoleHook.on_plan` prints the plan to stdout
 
 ## Getting Started
 
