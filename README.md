@@ -1,6 +1,6 @@
 # toy-agent
 
-A minimal agent implementation for learning agent fundamentals. Built with Python + OpenAI SDK.
+A minimal agent implementation for learning agent fundamentals. Built with Python, supporting multiple LLM providers via a unified adapter interface.
 
 [中文文档](README_zh.md)
 
@@ -13,41 +13,55 @@ toy-agent/
 │   ├── agent.py                # Agent loop core
 │   ├── config.py               # Multi-level config loader
 │   ├── context.py              # ContextCompressor + HermesContextCompressor
-│   ├── hooks.py               # AgentHook observability system
+│   ├── hooks.py                # AgentHook observability system
 │   ├── mcp.py                  # MCP client (stdio + SSE)
 │   ├── memory.py               # Session persistence
 │   ├── planning.py             # PlanHook + ReActPlanHook (task planning)
 │   ├── guardrails.py           # GuardrailHook (human-in-the-loop approval)
 │   ├── cost.py                 # CostTracker (token usage + cost)
 │   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
-│   ├── skills.py              # Skills loader
-│   ├── subagent.py            # SubAgentTool (tool-call pattern)
-│   ├── orchestrator/
-│   │   ├── __init__.py         # AgentDef + re-exports
-│   │   ├── router.py           # RouterOrchestrator (LLM routing)
-│   │   ├── sequential.py       # SequentialOrchestrator (pipeline)
-│   │   └── parallel.py         # ParallelOrchestrator (concurrent)
+│   ├── skills.py                # Skills loader
+│   ├── subagent.py              # SubAgentTool (tool-call pattern)
+│   ├── llm/                    # Multi-provider LLM abstraction
+│   │   ├── __init__.py         # create_llm_client() factory
+│   │   ├── protocol.py         # LLMProtocol (interface)
+│   │   ├── base.py             # BaseAdapter ABC (template method)
+│   │   ├── types.py            # ChatRequest, ChatResponse, StreamChunk, etc.
+│   │   ├── openai_adapter.py   # OpenAI adapter
+│   │   ├── anthropic_adapter.py # Anthropic/Claude adapter
+│   │   └── google_adapter.py   # Google/Gemini adapter
+│   └── orchestrator/
+│       ├── __init__.py         # AgentDef + re-exports
+│       ├── router.py           # RouterOrchestrator (LLM routing)
+│       ├── sequential.py        # SequentialOrchestrator (pipeline)
+│       └── parallel.py          # ParallelOrchestrator (concurrent)
 │   └── tools/
 │       ├── __init__.py          # @tool decorator + auto-registry
 │       ├── file_ops.py          # read_file, write_file, edit_file
 │       └── run_bash.py          # run_bash (with safety checks)
 ├── tests/
+│   ├── conftest.py              # Shared pytest fixtures (mock encoding)
 │   ├── mcp_stdio_server.py      # stdio MCP server for testing
 │   ├── mcp_sse_server.py        # SSE MCP server for testing
 │   ├── test_agent.py            # Agent unit tests
 │   ├── test_context.py          # ContextCompressor tests
-│   ├── test_hooks.py            # Hook system tests
-│   ├── test_memory.py           # SessionMemory tests
-│   ├── test_planning.py         # Planning tests (both hooks)
+│   ├── test_cost.py             # CostTracker tests
 │   ├── test_guardrails.py       # Guardrails tests
-│   ├── test_retriever.py        # RAG retriever tests
-│   ├── test_skills.py           # Skills loader tests
-│   ├── test_structured_output.py # Structured output tests
-│   └── test_subagent.py         # SubAgentTool tests
+│   ├── test_hooks.py            # Hook system tests
+│   ├── test_llm_base.py         # BaseAdapter tests
+│   ├── test_llm_factory.py      # create_llm_client() factory tests
+│   ├── test_memory.py           # SessionMemory tests
+│   ├── test_openai_adapter.py   # OpenAI adapter tests
+│   ├── test_anthropic_adapter.py # Anthropic adapter tests
+│   ├── test_google_adapter.py   # Google adapter tests
 │   ├── test_orchestrator_router.py      # Router tests
 │   ├── test_orchestrator_sequential.py  # Sequential tests
-│   └── test_orchestrator_parallel.py    # Parallel tests
-│   └── test_cost.py                     # CostTracker tests
+│   ├── test_orchestrator_parallel.py    # Parallel tests
+│   ├── test_planning.py         # Planning tests (both hooks)
+│   ├── test_retriever.py         # RAG retriever tests
+│   ├── test_skills.py            # Skills loader tests
+│   ├── test_structured_output.py  # Structured output tests
+│   └── test_subagent.py          # SubAgentTool tests
 ├── .env.example
 ├── Makefile
 └── pyproject.toml
@@ -63,6 +77,29 @@ The core loop that every agent framework is built on:
 4. If no `tool_calls` → LLM gives the final answer, exit loop
 
 API errors are caught and displayed without crashing the session.
+
+## Phase 1b: Multi-Provider LLM
+
+A unified LLM abstraction layer (`toy_agent/llm/`) allows the agent to work with any provider through a common interface. The `LLMProtocol` defines the contract; `BaseAdapter` provides shared scaffolding.
+
+**Architecture:**
+
+```
+toy_agent/llm/
+├── protocol.py        LLMProtocol — the interface (chat, chat_stream)
+├── base.py            BaseAdapter — template method, 5 abstract methods per adapter
+├── types.py           ChatRequest, ChatResponse, StreamChunk, ToolCall, etc.
+├── openai_adapter.py  OpenAI adapter (openai SDK)
+├── anthropic_adapter.py  Anthropic adapter (anthropic SDK, lazy import)
+└── google_adapter.py    Gemini adapter (google-genai SDK, lazy import)
+```
+
+**Design goals:**
+- **Protocol + BaseAdapter** — adapters implement 5 abstract methods; shared logic lives in `BaseAdapter`
+- **Lazy imports** — Anthropic and Google SDKs are imported on demand; missing SDK raises a clear error
+- **Unified types** — `ChatRequest` / `ChatResponse` / `StreamChunk` are provider-agnostic
+- **Streaming** — `chat_stream()` returns `Iterator[StreamChunk]` regardless of provider
+- **Backward compatible** — defaults to OpenAI when `LLM_PROVIDER` is unset
 
 ## Phase 2: Tools
 
@@ -506,6 +543,11 @@ print(tracker.summary())
 | gpt-4o | $0.0025 | $0.01 |
 | gpt-4-turbo | $0.01 | $0.03 |
 | gpt-3.5-turbo | $0.0005 | $0.0015 |
+| claude-sonnet-4-20250514 | $0.003 | $0.015 |
+| claude-opus-4-20250514 | $0.015 | $0.075 |
+| claude-haiku-4-5-20251001 | $0.0008 | $0.004 |
+| gemini-2.0-flash | $0.0001 | $0.0004 |
+| gemini-2.5-pro | $0.00125 | $0.01 |
 
 Custom pricing for other models:
 ```python
@@ -522,7 +564,8 @@ uv sync
 
 # Configure API
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY
+# Edit .env — supports OpenAI, Anthropic, and Google Gemini
+# Set LLM_PROVIDER to select the provider (default: openai)
 
 # Configure MCP servers (optional)
 mkdir -p .toy-agent
@@ -531,6 +574,37 @@ mkdir -p .toy-agent
 # Run
 make run
 ```
+
+### Multi-Provider LLM
+
+`toy_agent/llm/` provides a unified interface for OpenAI, Anthropic, and Google Gemini. Use `create_llm_client()` to instantiate the right adapter from environment variables:
+
+```python
+from toy_agent.llm import create_llm_client
+
+# Reads LLM_PROVIDER, LLM_MODEL, and provider-specific env vars
+client = create_llm_client()
+
+# Or instantiate directly
+from toy_agent.llm import OpenAIAdapter, AnthropicAdapter, GeminiAdapter
+
+client = OpenAIAdapter(api_key="sk-...", model="gpt-4o-mini")
+client = AnthropicAdapter(api_key="sk-ant-...", model="claude-sonnet-4-20250514")
+client = GeminiAdapter(api_key="...", model="gemini-2.0-flash")
+```
+
+**Environment variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_PROVIDER` | Provider name (`openai`, `anthropic`, `gemini`) | `openai` |
+| `LLM_MODEL` | Model name | provider default |
+| `OPENAI_API_KEY` | OpenAI API key | — |
+| `OPENAI_BASE_URL` | OpenAI base URL (for proxies) | `https://api.openai.com/v1` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `GEMINI_API_KEY` | Google Gemini API key | — |
+
+Install optional dependencies: `uv sync --extra anthropic` or `uv sync --extra gemini`.
 
 ## Make Commands
 
