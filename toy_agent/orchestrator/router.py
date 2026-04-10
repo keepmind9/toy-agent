@@ -11,6 +11,7 @@ Flow:
 
 from __future__ import annotations
 
+from toy_agent.llm.types import ChatRequest
 from toy_agent.orchestrator import AgentDef
 
 
@@ -32,11 +33,13 @@ class RouterOrchestrator:
             "Reply with ONLY the agent name, nothing else."
         )
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
+        response = self.client.chat(
+            ChatRequest(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
-        chosen = response.choices[0].message.content.strip().lower()
+        chosen = response.content.strip().lower()
 
         for name, agent_def in self.agents.items():
             if name.lower() in chosen:

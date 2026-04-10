@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from toy_agent.llm.types import ChatRequest
+
 if TYPE_CHECKING:
     from toy_agent.agent import Agent
 
@@ -45,8 +47,10 @@ class ParallelOrchestrator:
         responses = "\n\n".join(f"Response {i + 1}:\n{r}" for i, r in enumerate(results))
         prompt = f"Synthesize these responses into one best answer:\n\n{responses}"
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
+        response = self.client.chat(
+            ChatRequest(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
-        return response.choices[0].message.content
+        return response.content

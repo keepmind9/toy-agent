@@ -5,13 +5,13 @@ import os
 import readline  # noqa: F401  # side-effect: enables readline features in input()
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
 from toy_agent.agent import Agent
 from toy_agent.config import load_mcp_config
 from toy_agent.context import HermesContextCompressor
 from toy_agent.guardrails import GuardrailHook
 from toy_agent.hooks import ConsoleHook
+from toy_agent.llm import create_llm_client
 from toy_agent.mcp import MCPClient
 from toy_agent.memory import SessionMemory
 from toy_agent.planning import ReActPlanHook
@@ -46,15 +46,18 @@ def _get_input(prompt: str) -> str:
 
 
 async def async_main():
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    if not api_key:
-        print("Error: OPENAI_API_KEY is not set. Set it via env var or .env file.")
+    try:
+        client = create_llm_client()
+    except ValueError as e:
+        print(f"Error: {e}")
         return
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    provider = os.getenv("LLM_PROVIDER", "openai")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    if provider == "anthropic":
+        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+    elif provider == "gemini":
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     # Load skills
     skills = load_skills()

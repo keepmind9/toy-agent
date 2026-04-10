@@ -13,15 +13,14 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
-
 from toy_agent.agent import Agent
+from toy_agent.llm import create_llm_client
 from toy_agent.orchestrator import AgentDef, ParallelOrchestrator, RouterOrchestrator, SequentialOrchestrator
 
 load_dotenv()
 
 
-def create_agents(client: OpenAI, model: str):
+def create_agents(client, model: str):
     """Create specialized agents for orchestration demos."""
 
     coding_agent = Agent(
@@ -45,7 +44,7 @@ def create_agents(client: OpenAI, model: str):
     return coding_agent, writing_agent, reviewer_agent
 
 
-async def demo_router(client: OpenAI, model: str):
+async def demo_router(client, model: str):
     """Demo: RouterOrchestrator routes tasks to specialized agents."""
     print("=" * 60)
     print("1. RouterOrchestrator — LLM picks the best agent")
@@ -74,7 +73,7 @@ async def demo_router(client: OpenAI, model: str):
     print(f"Result: {result[:200]}...\n")
 
 
-async def demo_sequential(client: OpenAI, model: str):
+async def demo_sequential(client, model: str):
     """Demo: SequentialOrchestrator chains agents in a pipeline."""
     print("=" * 60)
     print("2. SequentialOrchestrator — agents run in a pipeline")
@@ -90,7 +89,7 @@ async def demo_sequential(client: OpenAI, model: str):
     print(f"Final result: {result[:300]}...\n")
 
 
-async def demo_parallel(client: OpenAI, model: str):
+async def demo_parallel(client, model: str):
     """Demo: ParallelOrchestrator runs agents concurrently."""
     print("=" * 60)
     print("3. ParallelOrchestrator — agents run concurrently")
@@ -112,16 +111,18 @@ async def demo_parallel(client: OpenAI, model: str):
 
 
 async def main():
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    if not api_key:
-        print("Error: OPENAI_API_KEY is not set.")
-        print("Usage: OPENAI_API_KEY=your-key python examples/orchestration.py")
+    try:
+        client = create_llm_client()
+    except ValueError as e:
+        print(f"Error: {e}")
         return
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    provider = os.getenv("LLM_PROVIDER", "openai")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    if provider == "anthropic":
+        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+    elif provider == "gemini":
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     await demo_router(client, model)
     await demo_sequential(client, model)

@@ -39,9 +39,7 @@ class TestParallelOrchestrator:
         agent_b = _mock_agent("B")
 
         client = MagicMock()
-        agg_msg = MagicMock()
-        agg_msg.content = "merged answer"
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=agg_msg)])
+        client.chat.return_value = MagicMock(content="merged answer")
 
         parallel = ParallelOrchestrator(
             agents=[agent_a, agent_b],
@@ -51,7 +49,7 @@ class TestParallelOrchestrator:
         result = await parallel.run("test")
 
         assert result == "merged answer"
-        client.chat.completions.create.assert_called_once()
+        client.chat.assert_called_once()
 
     @pytest.mark.anyio
     async def test_without_aggregation_concatenates(self):

@@ -22,9 +22,7 @@ class TestRouterOrchestrator:
         writing = _mock_agent("writing")
 
         client = MagicMock()
-        router_msg = MagicMock()
-        router_msg.content = "coding"
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=router_msg)])
+        client.chat.return_value = MagicMock(content="coding")
 
         router = RouterOrchestrator(
             client=client,
@@ -47,9 +45,7 @@ class TestRouterOrchestrator:
         agent_b = _mock_agent("agent_b")
 
         client = MagicMock()
-        router_msg = MagicMock()
-        router_msg.content = "unknown_agent"
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=router_msg)])
+        client.chat.return_value = MagicMock(content="unknown_agent")
 
         router = RouterOrchestrator(
             client=client,
