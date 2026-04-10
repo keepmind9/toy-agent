@@ -21,6 +21,11 @@ toy-agent/
 │   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
 │   ├── skills.py              # Skills 加载器
 │   ├── subagent.py            # SubAgentTool（Tool-call 模式）
+│   ├── orchestrator/
+│   │   ├── __init__.py         # AgentDef + re-exports
+│   │   ├── router.py           # RouterOrchestrator（LLM 路由）
+│   │   ├── sequential.py       # SequentialOrchestrator（流水线）
+│   │   └── parallel.py         # ParallelOrchestrator（并发）
 │   └── tools/
 │       ├── __init__.py          # @tool 装饰器 + 自动注册
 │       ├── file_ops.py          # read_file, write_file, edit_file
@@ -38,6 +43,9 @@ toy-agent/
 │   ├── test_skills.py           # Skills 加载器测试
 │   ├── test_structured_output.py # 结构化输出测试
 │   └── test_subagent.py         # SubAgentTool 测试
+│   ├── test_orchestrator_router.py      # Router 测试
+│   ├── test_orchestrator_sequential.py  # Sequential 测试
+│   └── test_orchestrator_parallel.py    # Parallel 测试
 ├── .env.example
 ├── Makefile
 └── pyproject.toml
@@ -413,6 +421,63 @@ retriever.py
 ```
 
 `BaseRetriever` 是抽象类——可以替换为基于 embedding 的实现，无需改动 agent。
+
+## Phase 14: Multi-Agent Orchestration（多 Agent 编排）
+
+三种编排模式，展示多个 Agent 协作的不同方式。每种模式独立一个文件，代码简洁清晰。
+
+### RouterOrchestrator（LLM 路由）
+
+一次 LLM 调用分类用户意图，从 Agent 池中委派给最匹配的 Agent。
+
+```python
+from toy_agent.orchestrator import AgentDef, RouterOrchestrator
+
+router = RouterOrchestrator(
+    client=client,
+    model="gpt-4o-mini",
+    agents=[
+        AgentDef(name="coding", description="Writes and debugs code", agent=coding_agent),
+        AgentDef(name="writing", description="Writes articles and docs", agent=writing_agent),
+    ],
+)
+result = await router.run("write a quicksort in Python")
+# → LLM 选择 "coding" → coding_agent 处理任务
+```
+
+核心概念：**LLM 即路由器** — 一次分类调用替代手写的 if/else 路由逻辑。
+
+### SequentialOrchestrator（流水线）
+
+Agent 按顺序执行，每个接收上一个 Agent 的输出作为输入。
+
+```python
+from toy_agent.orchestrator import SequentialOrchestrator
+
+pipeline = SequentialOrchestrator(agents=[researcher, writer, reviewer])
+result = await pipeline.run("write a tech article about RAG")
+# researcher → writer → reviewer（链式传递）
+```
+
+核心概念：**Agent 流水线** — Agent 组成处理链，每一步优化上一步的结果。
+
+### ParallelOrchestrator（并发）
+
+多个 Agent 通过 `asyncio.gather` 同时执行同一任务，可选地用 LLM 调用汇总结果。
+
+```python
+from toy_agent.orchestrator import ParallelOrchestrator
+
+# 无汇总——结果直接拼接
+parallel = ParallelOrchestrator(agents=[coder_a, coder_b])
+
+# 有 LLM 汇总——一次调用综合最佳答案
+parallel = ParallelOrchestrator(agents=[coder_a, coder_b], client=client, model="gpt-4o-mini")
+
+result = await parallel.run("implement a sorting algorithm")
+```
+
+核心概念：**`asyncio.gather` 并发 + 可选 LLM 汇总** — 多个视角合为一个答案。
 
 ## 快速开始
 

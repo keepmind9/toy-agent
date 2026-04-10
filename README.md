@@ -21,6 +21,11 @@ toy-agent/
 │   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
+│   ├── orchestrator/
+│   │   ├── __init__.py         # AgentDef + re-exports
+│   │   ├── router.py           # RouterOrchestrator (LLM routing)
+│   │   ├── sequential.py       # SequentialOrchestrator (pipeline)
+│   │   └── parallel.py         # ParallelOrchestrator (concurrent)
 │   └── tools/
 │       ├── __init__.py          # @tool decorator + auto-registry
 │       ├── file_ops.py          # read_file, write_file, edit_file
@@ -38,6 +43,9 @@ toy-agent/
 │   ├── test_skills.py           # Skills loader tests
 │   ├── test_structured_output.py # Structured output tests
 │   └── test_subagent.py         # SubAgentTool tests
+│   ├── test_orchestrator_router.py      # Router tests
+│   ├── test_orchestrator_sequential.py  # Sequential tests
+│   └── test_orchestrator_parallel.py    # Parallel tests
 ├── .env.example
 ├── Makefile
 └── pyproject.toml
@@ -413,6 +421,63 @@ retriever.py
 ```
 
 `BaseRetriever` is an abstract class — swap `BM25Retriever` for an embedding-based implementation without changing the agent.
+
+## Phase 14: Multi-Agent Orchestration
+
+Three orchestration patterns that demonstrate different ways multiple agents can work together. Each pattern lives in its own file with a clear, minimal implementation.
+
+### RouterOrchestrator (LLM Routing)
+
+One LLM call classifies user intent and delegates to the best-matching agent from a pool.
+
+```python
+from toy_agent.orchestrator import AgentDef, RouterOrchestrator
+
+router = RouterOrchestrator(
+    client=client,
+    model="gpt-4o-mini",
+    agents=[
+        AgentDef(name="coding", description="Writes and debugs code", agent=coding_agent),
+        AgentDef(name="writing", description="Writes articles and docs", agent=writing_agent),
+    ],
+)
+result = await router.run("write a quicksort in Python")
+# → LLM picks "coding" → coding_agent handles the task
+```
+
+Key concept: **LLM as a router** — a single classification call replaces hand-coded if/else routing logic.
+
+### SequentialOrchestrator (Pipeline)
+
+Agents run in order; each receives the previous agent's output as input.
+
+```python
+from toy_agent.orchestrator import SequentialOrchestrator
+
+pipeline = SequentialOrchestrator(agents=[researcher, writer, reviewer])
+result = await pipeline.run("write a tech article about RAG")
+# researcher → writer → reviewer (chained output)
+```
+
+Key concept: **Agent pipeline** — agents form a processing chain where each step refines the previous result.
+
+### ParallelOrchestrator (Concurrent)
+
+Multiple agents execute the same task simultaneously via `asyncio.gather`, then optionally merge results with an LLM call.
+
+```python
+from toy_agent.orchestrator import ParallelOrchestrator
+
+# Without aggregation — results are concatenated
+parallel = ParallelOrchestrator(agents=[coder_a, coder_b])
+
+# With LLM aggregation — one call synthesizes the best answer
+parallel = ParallelOrchestrator(agents=[coder_a, coder_b], client=client, model="gpt-4o-mini")
+
+result = await parallel.run("implement a sorting algorithm")
+```
+
+Key concept: **`asyncio.gather` concurrency + optional LLM aggregation** — multiple perspectives combined into one answer.
 
 ## Getting Started
 
