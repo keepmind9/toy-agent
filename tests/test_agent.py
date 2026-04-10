@@ -6,27 +6,35 @@ import pytest
 
 from toy_agent.agent import Agent
 from toy_agent.context import ContextCompressor
+from toy_agent.llm.types import LLMError, StreamChunk
 from toy_agent.memory import SessionMemory
 from toy_agent.subagent import SubAgentTool
 
 
-def _make_tool_call_response(tool_call_id="tc_1", fn_name="test_tool", fn_args="{}"):
-    """Create a mock response with a single tool_call."""
-    message = MagicMock()
-    message.tool_calls = [MagicMock()]
-    message.tool_calls[0].id = tool_call_id
-    message.tool_calls[0].function.name = fn_name
-    message.tool_calls[0].function.arguments = fn_args
-    message.content = None
-    return message
+def _make_mock_response(text="done", tool_calls=None, usage=None):
+    """Create a mock ChatResponse (flat mock matching ChatResponse dataclass)."""
+    mock = MagicMock()
+    mock.content = text
+    mock.tool_calls = tool_calls
+    mock.usage = MagicMock()
+    mock.usage.prompt_tokens = (usage or {}).get("prompt_tokens", 0)
+    mock.usage.completion_tokens = (usage or {}).get("completion_tokens", 0)
+    mock.usage.total_tokens = (usage or {}).get("total_tokens", 0)
+    return mock
+
+
+def _make_tool_call(name="test_tool", args="{}", tc_id="tc_1"):
+    """Create a mock ToolCall."""
+    tc = MagicMock()
+    tc.id = tc_id
+    tc.name = name
+    tc.arguments = args
+    return tc
 
 
 def _make_text_response(text="done"):
-    """Create a mock response with plain text (no tool_calls)."""
-    message = MagicMock()
-    message.tool_calls = None
-    message.content = text
-    return message
+    """Create a mock ChatResponse with plain text (no tool_calls)."""
+    return _make_mock_response(text=text, tool_calls=None)
 
 
 class TestAgentHooks:
@@ -36,7 +44,7 @@ class TestAgentHooks:
         mock_hook = MagicMock()
         client = MagicMock()
         response = _make_text_response("hello")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client, hooks=[mock_hook])
         await agent.run("hi")
@@ -52,7 +60,7 @@ class TestAgentHooks:
         mock_hook = MagicMock()
         client = MagicMock()
         response = _make_text_response("hello")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client, hooks=[mock_hook])
         await agent.run("test message")
@@ -67,22 +75,13 @@ class TestAgentHooks:
         mock_hook = MagicMock()
         client = MagicMock()
 
-        tool_msg = MagicMock()
-        tool_msg.content = None
-        tc = MagicMock()
-        tc.id = "tc1"
-        tc.function.name = "read_file"
-        tc.function.arguments = '{"path": "/tmp/a.txt"}'
-        tool_msg.tool_calls = [tc]
+        tool_response = _make_mock_response(
+            text=None,
+            tool_calls=[_make_tool_call(name="read_file", args='{"path": "/tmp/a.txt"}', tc_id="tc1")],
+        )
+        text_response = _make_text_response("done")
 
-        text_msg = MagicMock()
-        text_msg.content = "done"
-        text_msg.tool_calls = None
-
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        client.chat.side_effect = [tool_response, text_response]
 
         async def dummy_tool(path: str) -> str:
             return "file contents"
@@ -114,11 +113,8 @@ class TestAgentHooks:
         mock_hook = MagicMock()
         client = MagicMock()
 
-        from openai import APIError
-
-        fake_error = APIError(message="server error", request=MagicMock(), body=None)
-        fake_error.status_code = 500  # injected attribute (not native to this SDK version)
-        client.chat.completions.create.side_effect = fake_error
+        fake_error = LLMError(message="server error", status_code=500)
+        client.chat.side_effect = fake_error
 
         agent = Agent(client=client, hooks=[mock_hook])
         await agent.run("test")
@@ -132,7 +128,7 @@ class TestAgentHooks:
         mock_hook = MagicMock()
         client = MagicMock()
         response = _make_text_response("the answer")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client, hooks=[mock_hook])
         await agent.run("question")
@@ -154,25 +150,6 @@ class TestAgentHooks:
         assert agent.hooks == [hook]
 
 
-def _make_tool_call_response(tool_call_id="tc_1", fn_name="test_tool", fn_args="{}"):
-    """Create a mock response with a single tool_call."""
-    message = MagicMock()
-    message.tool_calls = [MagicMock()]
-    message.tool_calls[0].id = tool_call_id
-    message.tool_calls[0].function.name = fn_name
-    message.tool_calls[0].function.arguments = fn_args
-    message.content = None
-    return message
-
-
-def _make_text_response(text="done"):
-    """Create a mock response with plain text (no tool_calls)."""
-    message = MagicMock()
-    message.tool_calls = None
-    message.content = text
-    return message
-
-
 class TestMaxTurns:
     @pytest.mark.anyio
     async def test_stops_after_max_turns(self):
@@ -180,15 +157,15 @@ class TestMaxTurns:
         client = MagicMock()
 
         # Always return tool_calls (infinite loop if no limit)
-        tool_response = _make_tool_call_response(fn_name="some_tool")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=tool_response)])
+        tool_response = _make_mock_response(text=None, tool_calls=[_make_tool_call(name="some_tool", args="{}")])
+        client.chat.return_value = tool_response
 
         agent = Agent(client=client)
         result = await agent.run("test", max_turns=3)
 
         assert "max turns" in result.lower()
         # Should have made exactly 3 API calls (3 turns)
-        assert client.chat.completions.create.call_count == 3
+        assert client.chat.call_count == 3
 
     @pytest.mark.anyio
     async def test_default_no_limit(self):
@@ -196,19 +173,16 @@ class TestMaxTurns:
         client = MagicMock()
 
         # First call: tool_call, second call: text response
-        tool_response = _make_tool_call_response(fn_name="some_tool")
+        tool_response = _make_mock_response(text=None, tool_calls=[_make_tool_call(name="some_tool", args="{}")])
         text_response = _make_text_response("final answer")
 
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_response)]),
-            MagicMock(choices=[MagicMock(message=text_response)]),
-        ]
+        client.chat.side_effect = [tool_response, text_response]
 
         agent = Agent(client=client)
         result = await agent.run("test")
 
         assert result == "final answer"
-        assert client.chat.completions.create.call_count == 2
+        assert client.chat.call_count == 2
 
 
 class TestSubagentInSystemPrompt:
@@ -280,23 +254,11 @@ class TestStreamingRun:
         """Streaming mode should print tokens to stdout."""
         client = MagicMock()
 
-        chunk1 = MagicMock()
-        chunk1.choices = [MagicMock()]
-        chunk1.choices[0].delta.content = "Hello"
-        chunk1.choices[0].delta.tool_calls = None
+        chunk1 = StreamChunk(delta_content="Hello", delta_tool_calls=None)
+        chunk2 = StreamChunk(delta_content=" world", delta_tool_calls=None)
+        chunk3 = StreamChunk(delta_content=None, delta_tool_calls=None)
 
-        chunk2 = MagicMock()
-        chunk2.choices = [MagicMock()]
-        chunk2.choices[0].delta.content = " world"
-        chunk2.choices[0].delta.tool_calls = None
-
-        chunk3 = MagicMock()
-        chunk3.choices = [MagicMock()]
-        chunk3.choices[0].delta.content = None
-        chunk3.choices[0].delta.tool_calls = None
-        chunk3.choices[0].finish_reason = "stop"
-
-        client.chat.completions.create.return_value = iter([chunk1, chunk2, chunk3])
+        client.chat_stream.return_value = iter([chunk1, chunk2, chunk3])
 
         agent = Agent(client=client, stream=True)
         result = await agent.run("hi")
@@ -313,7 +275,7 @@ class TestAgentMemory:
         """Agent should call memory.save() after each run."""
         client = MagicMock()
         response = _make_text_response("saved!")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         memory = SessionMemory(project_path="/test/project", base_dir=tmp_path)
         agent = Agent(client=client, memory=memory)
@@ -328,7 +290,7 @@ class TestAgentMemory:
         """Agent without memory should work exactly as before."""
         client = MagicMock()
         response = _make_text_response("no memory")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         result = await agent.run("test")
@@ -343,7 +305,7 @@ class TestAgentCompressor:
         """Agent should call compressor.compress() before sending to LLM."""
         client = MagicMock()
         response = _make_text_response("compressed!")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         compressor = ContextCompressor(client=client, model="gpt-4o-mini", token_limit=100000)
         compressor.compress = MagicMock(side_effect=lambda msgs: msgs)
@@ -358,7 +320,7 @@ class TestAgentCompressor:
         """Agent without compressor should work exactly as before."""
         client = MagicMock()
         response = _make_text_response("no compressor")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         result = await agent.run("test")
@@ -371,12 +333,9 @@ class TestToolRetry:
     async def test_tool_not_retried_by_default(self):
         """Without max_tool_retries, failed tool returns error immediately."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response(fn_name="flaky_tool")
-        text_msg = _make_text_response("fallback answer")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        tool_response = _make_mock_response(text=None, tool_calls=[_make_tool_call(name="flaky_tool", args="{}")])
+        text_response = _make_text_response("fallback answer")
+        client.chat.side_effect = [tool_response, text_response]
 
         call_count = 0
 
@@ -408,12 +367,9 @@ class TestToolRetry:
     async def test_tool_retried_on_failure(self):
         """With max_tool_retries > 0, failed tool is retried until success."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response(fn_name="flaky_tool")
-        text_msg = _make_text_response("success result")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        tool_response = _make_mock_response(text=None, tool_calls=[_make_tool_call(name="flaky_tool", args="{}")])
+        text_response = _make_text_response("success result")
+        client.chat.side_effect = [tool_response, text_response]
 
         call_count = 0
 
@@ -447,16 +403,11 @@ class TestToolRetry:
     @pytest.mark.anyio
     async def test_tool_retry_hook_fires(self):
         """on_tool_retry hook is called for each retry attempt."""
-        from unittest.mock import MagicMock as MockHook
-
-        mock_hook = MockHook()
+        mock_hook = MagicMock()
         client = MagicMock()
-        tool_msg = _make_tool_call_response(fn_name="flaky_tool")
-        text_msg = _make_text_response("done")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        tool_response = _make_mock_response(text=None, tool_calls=[_make_tool_call(name="flaky_tool", args="{}")])
+        text_response = _make_text_response("done")
+        client.chat.side_effect = [tool_response, text_response]
 
         call_count = 0
 

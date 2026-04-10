@@ -248,8 +248,8 @@ class TestHermesSummaryGeneration:
         """Summary LLM is called with structured prompt."""
         client = MagicMock()
         response = MagicMock()
-        response.choices[0].message.content = "## Goal\nTest goal\n## Progress\n### Done\n- stuff"
-        client.chat.completions.create.return_value = response
+        response.content = "## Goal\nTest goal\n## Progress\n### Done\n- stuff"
+        client.chat.return_value = response
 
         comp = HermesContextCompressor(client=client)
         messages = [
@@ -259,30 +259,30 @@ class TestHermesSummaryGeneration:
         summary = comp._generate_summary(messages)
 
         assert "## Goal" in summary
-        call_args = client.chat.completions.create.call_args
-        prompt = call_args[1]["messages"][0]["content"]
+        call_args = client.chat.call_args
+        prompt = call_args[0][0].messages[0]["content"]
         assert "TURNS TO SUMMARIZE" in prompt
 
     def test_iterative_update_uses_previous_summary(self):
         """Second compression uses iterative update prompt."""
         client = MagicMock()
         response = MagicMock()
-        response.choices[0].message.content = "## Goal\nUpdated"
-        client.chat.completions.create.return_value = response
+        response.content = "## Goal\nUpdated"
+        client.chat.return_value = response
 
         comp = HermesContextCompressor(client=client)
         comp._previous_summary = "## Goal\nOriginal"
         comp._generate_summary([{"role": "user", "content": "more work"}])
 
-        call_args = client.chat.completions.create.call_args
-        prompt = call_args[1]["messages"][0]["content"]
+        call_args = client.chat.call_args
+        prompt = call_args[0][0].messages[0]["content"]
         assert "PREVIOUS SUMMARY" in prompt
         assert "Original" in prompt
 
     def test_fallback_on_llm_failure(self):
         """Falls back to plain text when LLM fails."""
         client = MagicMock()
-        client.chat.completions.create.side_effect = Exception("API down")
+        client.chat.side_effect = Exception("API down")
 
         comp = HermesContextCompressor(client=client)
         messages = [
@@ -364,8 +364,8 @@ class TestHermesIntegration:
         """End-to-end: compression runs all 4 phases."""
         client = MagicMock()
         response = MagicMock()
-        response.choices[0].message.content = "## Goal\nTest\n## Progress\n### Done\n- all"
-        client.chat.completions.create.return_value = response
+        response.content = "## Goal\nTest\n## Progress\n### Done\n- all"
+        client.chat.return_value = response
 
         comp = HermesContextCompressor(client=client, token_limit=1, protect_head=2)
         messages = _make_messages_with_tools(4, tool_result_size=500)

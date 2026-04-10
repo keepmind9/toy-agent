@@ -6,9 +6,9 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from openai import OpenAI
-
 from toy_agent.hooks import AgentHook
+from toy_agent.llm.protocol import LLMProtocol
+from toy_agent.llm.types import ChatRequest
 
 
 @dataclass
@@ -78,7 +78,7 @@ class PlanHook(AgentHook):
 
     def __init__(
         self,
-        client: OpenAI,
+        client: LLMProtocol,
         model: str = "gpt-4o-mini",
         auto: bool = True,
     ):
@@ -122,12 +122,14 @@ class PlanHook(AgentHook):
         """Ask LLM if the task needs multi-step planning."""
         prompt = _CLASSIFY_PROMPT.format(task=task)
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
+            response = self.client.chat(
+                ChatRequest(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
             )
-            data = json.loads(response.choices[0].message.content)
+            data = json.loads(response.content)
             return bool(data.get("needs_plan", False))
         except Exception:
             return False
@@ -136,12 +138,14 @@ class PlanHook(AgentHook):
         """Ask LLM to generate a step-by-step plan."""
         prompt = _GENERATE_PROMPT.format(task=task, tool_names=", ".join(tool_names) or "none")
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
+            response = self.client.chat(
+                ChatRequest(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
             )
-            data = json.loads(response.choices[0].message.content)
+            data = json.loads(response.content)
             steps = [PlanStep(id=i + 1, description=desc) for i, desc in enumerate(data.get("steps", []))]
             return Plan(goal=data.get("goal", task), steps=steps)
         except Exception:

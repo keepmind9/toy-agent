@@ -34,9 +34,8 @@ class TestPlanHookCheckNeedsPlan:
         """Simple questions don't trigger planning."""
         client = MagicMock()
         response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.content = json.dumps({"needs_plan": False})
-        client.chat.completions.create.return_value = response
+        response.content = json.dumps({"needs_plan": False})
+        client.chat.return_value = response
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=True)
         result = await hook._check_needs_plan("What time is it?")
@@ -47,9 +46,8 @@ class TestPlanHookCheckNeedsPlan:
         """Complex tasks trigger planning."""
         client = MagicMock()
         response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.content = json.dumps({"needs_plan": True})
-        client.chat.completions.create.return_value = response
+        response.content = json.dumps({"needs_plan": True})
+        client.chat.return_value = response
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=True)
         result = await hook._check_needs_plan("Analyze the entire codebase and suggest improvements")
@@ -59,7 +57,7 @@ class TestPlanHookCheckNeedsPlan:
     async def test_api_error_returns_false(self):
         """If classification API fails, don't plan."""
         client = MagicMock()
-        client.chat.completions.create.side_effect = Exception("API error")
+        client.chat.side_effect = Exception("API error")
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=True)
         result = await hook._check_needs_plan("Some task")
@@ -72,14 +70,13 @@ class TestPlanHookGeneratePlan:
         """Plan generation returns a Plan with steps."""
         client = MagicMock()
         response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.content = json.dumps(
+        response.content = json.dumps(
             {
                 "goal": "Analyze code",
                 "steps": ["Scan structure", "Check quality", "Summarize"],
             }
         )
-        client.chat.completions.create.return_value = response
+        client.chat.return_value = response
 
         hook = PlanHook(client=client, model="gpt-4o-mini")
         plan = await hook._generate_plan("Analyze the code", ["read_file", "run_bash"])
@@ -94,7 +91,7 @@ class TestPlanHookGeneratePlan:
     async def test_generate_plan_api_error_returns_none(self):
         """If plan generation API fails, return None."""
         client = MagicMock()
-        client.chat.completions.create.side_effect = Exception("API error")
+        client.chat.side_effect = Exception("API error")
 
         hook = PlanHook(client=client, model="gpt-4o-mini")
         plan = await hook._generate_plan("Do something", [])
@@ -126,22 +123,18 @@ class TestAgentPlanIntegration:
         client = MagicMock()
 
         plan_response = MagicMock()
-        plan_response.choices = [MagicMock()]
-        plan_response.choices[0].message.content = json.dumps(
+        plan_response.content = json.dumps(
             {
                 "goal": "Analyze code",
                 "steps": ["Scan structure", "Check quality"],
             }
         )
 
-        text_msg = MagicMock()
-        text_msg.content = "Done analyzing"
-        text_msg.tool_calls = None
+        text_response = MagicMock()
+        text_response.content = "Done analyzing"
+        text_response.tool_calls = None
 
-        client.chat.completions.create.side_effect = [
-            plan_response,
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        client.chat.side_effect = [plan_response, text_response]
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=False)
         agent = Agent(client=client, hooks=[hook])
@@ -154,26 +147,26 @@ class TestAgentPlanIntegration:
     async def test_plan_false_skips_planning(self):
         """plan=False skips planning even when auto=True."""
         client = MagicMock()
-        text_msg = MagicMock()
-        text_msg.content = "Quick answer"
-        text_msg.tool_calls = None
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+        response = MagicMock()
+        response.content = "Quick answer"
+        response.tool_calls = None
+        client.chat.return_value = response
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=True)
         agent = Agent(client=client, hooks=[hook])
         result = await agent.run("Hello", plan=False)
 
         assert result == "Quick answer"
-        assert client.chat.completions.create.call_count == 1
+        assert client.chat.call_count == 1
 
     @pytest.mark.anyio
     async def test_no_plan_hook_works_as_before(self):
         """Agent without PlanHook works normally with plan param."""
         client = MagicMock()
-        text_msg = MagicMock()
-        text_msg.content = "normal response"
-        text_msg.tool_calls = None
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+        response = MagicMock()
+        response.content = "normal response"
+        response.tool_calls = None
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         result = await agent.run("Hello", plan=True)
@@ -186,27 +179,21 @@ class TestAgentPlanIntegration:
         client = MagicMock()
 
         classify_response = MagicMock()
-        classify_response.choices = [MagicMock()]
-        classify_response.choices[0].message.content = json.dumps({"needs_plan": True})
+        classify_response.content = json.dumps({"needs_plan": True})
 
         plan_response = MagicMock()
-        plan_response.choices = [MagicMock()]
-        plan_response.choices[0].message.content = json.dumps(
+        plan_response.content = json.dumps(
             {
                 "goal": "Complex analysis",
                 "steps": ["Step 1", "Step 2"],
             }
         )
 
-        text_msg = MagicMock()
-        text_msg.content = "Analysis complete"
-        text_msg.tool_calls = None
+        text_response = MagicMock()
+        text_response.content = "Analysis complete"
+        text_response.tool_calls = None
 
-        client.chat.completions.create.side_effect = [
-            classify_response,
-            plan_response,
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        client.chat.side_effect = [classify_response, plan_response, text_response]
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=True)
         agent = Agent(client=client, hooks=[hook])
@@ -221,17 +208,13 @@ class TestAgentPlanIntegration:
         client = MagicMock()
 
         classify_response = MagicMock()
-        classify_response.choices = [MagicMock()]
-        classify_response.choices[0].message.content = json.dumps({"needs_plan": False})
+        classify_response.content = json.dumps({"needs_plan": False})
 
-        text_msg = MagicMock()
-        text_msg.content = "It's 3pm"
-        text_msg.tool_calls = None
+        text_response = MagicMock()
+        text_response.content = "It's 3pm"
+        text_response.tool_calls = None
 
-        client.chat.completions.create.side_effect = [
-            classify_response,
-            MagicMock(choices=[MagicMock(message=text_msg)]),
-        ]
+        client.chat.side_effect = [classify_response, text_response]
 
         hook = PlanHook(client=client, model="gpt-4o-mini", auto=True)
         agent = Agent(client=client, hooks=[hook])
@@ -246,17 +229,17 @@ class TestReActPlanHookOnBeforeLoop:
     async def test_injects_system_hint_no_api_calls(self):
         """ReActPlanHook injects guidance prompt without any LLM API calls."""
         client = MagicMock()
-        text_msg = MagicMock()
-        text_msg.content = "Direct answer"
-        text_msg.tool_calls = None
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+        response = MagicMock()
+        response.content = "Direct answer"
+        response.tool_calls = None
+        client.chat.return_value = response
 
         hook = ReActPlanHook()
         agent = Agent(client=client, hooks=[hook])
         await agent.run("Hello")
 
         # Only 1 API call (the main agent loop), no extra planning calls
-        assert client.chat.completions.create.call_count == 1
+        assert client.chat.call_count == 1
         # System hint injected as assistant message
         assert any("complex task" in m.get("content", "") for m in agent.messages if m.get("role") == "assistant")
 
@@ -264,10 +247,10 @@ class TestReActPlanHookOnBeforeLoop:
     async def test_stores_agent_reference(self):
         """ReActPlanHook stores agent reference after on_before_loop."""
         client = MagicMock()
-        text_msg = MagicMock()
-        text_msg.content = "Done"
-        text_msg.tool_calls = None
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+        response = MagicMock()
+        response.content = "Done"
+        response.tool_calls = None
+        client.chat.return_value = response
 
         hook = ReActPlanHook()
         agent = Agent(client=client, hooks=[hook])
@@ -399,30 +382,30 @@ class TestReActPlanHookIntegration:
     async def test_no_extra_api_calls(self):
         """ReActPlanHook makes zero extra LLM API calls."""
         client = MagicMock()
-        text_msg = MagicMock()
-        text_msg.content = "Direct answer"
-        text_msg.tool_calls = None
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+        response = MagicMock()
+        response.content = "Direct answer"
+        response.tool_calls = None
+        client.chat.return_value = response
 
         hook = ReActPlanHook()
         agent = Agent(client=client, hooks=[hook])
         await agent.run("Hello")
 
-        assert client.chat.completions.create.call_count == 1
+        assert client.chat.call_count == 1
 
     @pytest.mark.anyio
     async def test_model_self_plans_and_tracks(self):
         """End-to-end: model declares plan, reports steps, events fire."""
         client = MagicMock()
 
-        text_msg = MagicMock()
-        text_msg.content = (
+        response = MagicMock()
+        response.content = (
             "Let me plan.\nGoal: Do things\n\n1. First thing\n2. Second thing\n\n"
             "Done first. [Step 1 complete]\nDone second. [Step 2 complete]"
         )
-        text_msg.tool_calls = None
+        response.tool_calls = None
 
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=text_msg)])
+        client.chat.return_value = response
 
         hook = ReActPlanHook()
         mock_hook = MagicMock()
@@ -430,6 +413,6 @@ class TestReActPlanHookIntegration:
         await agent.run("Do things")
 
         # Only 1 API call (main loop), no extra planning calls
-        assert client.chat.completions.create.call_count == 1
+        assert client.chat.call_count == 1
         mock_hook.on_plan_step.assert_called()
         mock_hook.on_plan_done.assert_called_once()

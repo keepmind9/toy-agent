@@ -15,12 +15,11 @@ from __future__ import annotations
 import copy
 import json
 import warnings
-from typing import TYPE_CHECKING
 
 import tiktoken
 
-if TYPE_CHECKING:
-    from openai import OpenAI
+from toy_agent.llm.protocol import LLMProtocol
+from toy_agent.llm.types import ChatRequest
 
 
 def count_tokens(messages: list[dict], encoding) -> int:
@@ -61,7 +60,7 @@ class ContextCompressor:
 
     def __init__(
         self,
-        client: OpenAI,
+        client: LLMProtocol,
         model: str = "gpt-4o-mini",
         token_limit: int = 80000,
     ):
@@ -166,18 +165,20 @@ class ContextCompressor:
         text = "\n".join(parts)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Summarize this agent turn in 1-2 sentences: what was done and the outcome.",
-                    },
-                    {"role": "user", "content": text},
-                ],
-                max_tokens=200,
+            response = self.client.chat(
+                ChatRequest(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Summarize this agent turn in 1-2 sentences: what was done and the outcome.",
+                        },
+                        {"role": "user", "content": text},
+                    ],
+                    max_tokens=200,
+                )
             )
-            return response.choices[0].message.content or text[:300]
+            return response.content or text[:300]
         except Exception as e:
             warnings.warn(f"Summary generation failed: {e}, using plain text fallback", stacklevel=2)
             return text[:300]
@@ -255,7 +256,7 @@ class HermesContextCompressor:
 
     def __init__(
         self,
-        client: OpenAI,
+        client: LLMProtocol,
         model: str = "gpt-4o-mini",
         token_limit: int = 80000,
         tail_ratio: float = 0.15,
@@ -374,12 +375,14 @@ class HermesContextCompressor:
             prompt = _FIRST_SUMMARY_PROMPT.format(content=content)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,
+            response = self.client.chat(
+                ChatRequest(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=2000,
+                )
             )
-            return response.choices[0].message.content or self._fallback_summary(messages)
+            return response.content or self._fallback_summary(messages)
         except Exception as e:
             warnings.warn(f"Summary generation failed: {e}", stacklevel=2)
             return self._fallback_summary(messages)

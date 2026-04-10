@@ -15,12 +15,14 @@ import inspect
 import json
 import time
 import warnings
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from openai import APIError, OpenAI
 from pydantic import BaseModel
 
 from toy_agent.hooks import AgentHook
+from toy_agent.llm.protocol import LLMProtocol
+from toy_agent.llm.types import ChatRequest, LLMError, StreamChunk, ToolDef
 from toy_agent.skills import Skill, get_skill
 from toy_agent.tools import Tool
 
@@ -69,22 +71,33 @@ def _parse_structured_output(raw: str, model: type[BaseModel]) -> BaseModel | st
         return raw
 
 
-def _usage_dict(response) -> dict | None:
-    """Extract token usage from an API response as a plain dict."""
-    u = getattr(response, "usage", None)
-    if u is None:
+def _tool_schemas_to_tool_defs(schemas: list[dict]) -> list[ToolDef]:
+    """Convert OpenAI-format tool schemas to ToolDef list."""
+    return [
+        ToolDef(
+            name=s["function"]["name"],
+            description=s["function"]["description"],
+            parameters=s["function"]["parameters"],
+        )
+        for s in schemas
+    ]
+
+
+def _usage_to_dict(usage) -> dict | None:
+    """Convert TokenUsage to a plain dict for hook compatibility."""
+    if usage is None:
         return None
     return {
-        "prompt_tokens": getattr(u, "prompt_tokens", 0),
-        "completion_tokens": getattr(u, "completion_tokens", 0),
-        "total_tokens": getattr(u, "total_tokens", 0),
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
     }
 
 
 class Agent:
     def __init__(
         self,
-        client: OpenAI,
+        client: LLMProtocol,
         model: str = "gpt-4o-mini",
         system: str = "You are a helpful assistant.",
         tools: list[Tool] | None = None,
@@ -219,76 +232,81 @@ class Agent:
             self._emit("on_llm_request", messages=self.messages)
 
             try:
-                api_kwargs: dict[str, Any] = {
-                    "model": self.model,
-                    "messages": self.messages,
-                    "stream": use_stream,
-                }
+                request = ChatRequest(
+                    messages=self.messages,
+                    model=self.model,
+                    stream=use_stream,
+                )
                 if response_format:
-                    api_kwargs["response_format"] = _pydantic_to_response_format(response_format)
-                    api_kwargs["tools"] = None
+                    request.response_format = _pydantic_to_response_format(response_format)
+                    request.tools = None
                 else:
-                    api_kwargs["tools"] = self._all_tool_schemas or None
-                response = self.client.chat.completions.create(**api_kwargs)
-            except APIError as e:
-                self._emit("on_error", error=f"[API Error] {e.status_code}: {e.message}")
-                return f"[API Error] {e.status_code}: {e.message}"
+                    request.tools = (
+                        _tool_schemas_to_tool_defs(self._all_tool_schemas) if self._all_tool_schemas else None
+                    )
+                if use_stream:
+                    stream = self.client.chat_stream(request)
+                else:
+                    response = self.client.chat(request)
+            except LLMError as e:
+                self._emit(
+                    "on_error", error=f"[API Error] {e.status_code}: {e}" if e.status_code else f"[API Error] {e}"
+                )
+                return f"[API Error] {e.status_code}: {e}" if e.status_code else f"[API Error] {e}"
 
             if use_stream:
                 return await self._process_stream(
-                    response, max_turns=max_turns, turn=turn, response_format=response_format
+                    stream, max_turns=max_turns, turn=turn, response_format=response_format
                 )
 
-            message = response.choices[0].message
-
-            if message.tool_calls:
+            if response.tool_calls:
                 assistant_msg = {
                     "role": "assistant",
-                    "content": message.content,
+                    "content": response.content,
                     "tool_calls": [
                         {
                             "id": tc.id,
                             "type": "function",
                             "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
+                                "name": tc.name,
+                                "arguments": tc.arguments,
                             },
                         }
-                        for tc in message.tool_calls
+                        for tc in response.tool_calls
                     ],
                 }
-                self._emit("on_llm_response", message=assistant_msg, usage=_usage_dict(response))
+                self._emit("on_llm_response", message=assistant_msg, usage=_usage_to_dict(response.usage))
                 self.messages.append(assistant_msg)
-                self._emit("on_message", role="assistant", content=message.content or "")
+                self._emit("on_message", role="assistant", content=response.content or "")
 
-                for tool_call in message.tool_calls:
-                    fn_args = json.loads(tool_call.function.arguments)
-                    self._emit("on_tool_call", tool_name=tool_call.function.name, arguments=fn_args)
-                    result = await self._execute_tool(tool_call.function.name, fn_args)
-                    self._emit("on_tool_result", tool_name=tool_call.function.name, result=str(result))
+                for tc in response.tool_calls:
+                    fn_args = json.loads(tc.arguments)
+                    self._emit("on_tool_call", tool_name=tc.name, arguments=fn_args)
+                    result = await self._execute_tool(tc.name, fn_args)
+                    self._emit("on_tool_result", tool_name=tc.name, result=str(result))
                     self.messages.append(
                         {
                             "role": "tool",
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": tc.id,
                             "content": str(result),
                         }
                     )
 
                 continue
 
-            self.messages.append({"role": "assistant", "content": message.content})
-            self._emit("on_message", role="assistant", content=message.content)
-            usage = _usage_dict(response)
+            self.messages.append({"role": "assistant", "content": response.content})
+            self._emit("on_message", role="assistant", content=response.content)
+            usage_dict = _usage_to_dict(response.usage)
             self._emit(
                 "on_llm_response",
-                message={"role": "assistant", "content": message.content},
-                usage=usage,
+                message={"role": "assistant", "content": response.content},
+                usage=usage_dict,
             )
             if self.memory:
                 self.memory.save(self.messages)
             if response_format:
-                return _parse_structured_output(message.content, response_format)
-            return message.content
+                return _parse_structured_output(response.content, response_format)
+            return response.content
 
     async def _check_guardrails(self, tool_name: str, arguments: dict) -> str | None:
         """Check if any guardrail hook blocks this tool call.
@@ -342,32 +360,35 @@ class Agent:
         return f"Error: unknown tool '{fn_name}'"
 
     async def _process_stream(
-        self, stream, *, max_turns: int | None, turn: int, response_format: type[BaseModel] | None = None
+        self,
+        stream: Iterator[StreamChunk],
+        *,
+        max_turns: int | None,
+        turn: int,
+        response_format: type[BaseModel] | None = None,
     ) -> str:
         """Process a streaming response. Print tokens, handle tool calls."""
         collected_content = ""
         tool_calls_data: dict[int, dict] = {}
 
         for chunk in stream:
-            delta = chunk.choices[0].delta
-
             # Collect text content
-            if delta.content:
-                collected_content += delta.content
-                print(delta.content, end="", flush=True)
+            if chunk.delta_content:
+                collected_content += chunk.delta_content
+                print(chunk.delta_content, end="", flush=True)
 
             # Collect tool call data
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
+            if chunk.delta_tool_calls:
+                for tc in chunk.delta_tool_calls:
                     idx = tc.index
                     if idx not in tool_calls_data:
                         tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
                     if tc.id:
                         tool_calls_data[idx]["id"] += tc.id
-                    if tc.function.name:
-                        tool_calls_data[idx]["name"] += tc.function.name
-                    if tc.function.arguments:
-                        tool_calls_data[idx]["arguments"] += tc.function.arguments
+                    if tc.name:
+                        tool_calls_data[idx]["name"] += tc.name
+                    if tc.arguments:
+                        tool_calls_data[idx]["arguments"] += tc.arguments
 
         print()  # newline after streamed output
 
@@ -407,22 +428,26 @@ class Agent:
             self._emit("on_llm_request", messages=self.messages)
 
             try:
-                api_kwargs: dict[str, Any] = {
-                    "model": self.model,
-                    "messages": self.messages,
-                    "stream": True,
-                }
+                request = ChatRequest(
+                    messages=self.messages,
+                    model=self.model,
+                    stream=True,
+                )
                 if response_format:
-                    api_kwargs["response_format"] = _pydantic_to_response_format(response_format)
-                    api_kwargs["tools"] = None
+                    request.response_format = _pydantic_to_response_format(response_format)
+                    request.tools = None
                 else:
-                    api_kwargs["tools"] = self._all_tool_schemas or None
-                response = self.client.chat.completions.create(**api_kwargs)
-            except APIError as e:
-                self._emit("on_error", error=f"[API Error] {e.status_code}: {e.message}")
-                return f"[API Error] {e.status_code}: {e.message}"
+                    request.tools = (
+                        _tool_schemas_to_tool_defs(self._all_tool_schemas) if self._all_tool_schemas else None
+                    )
+                stream = self.client.chat_stream(request)
+            except LLMError as e:
+                self._emit(
+                    "on_error", error=f"[API Error] {e.status_code}: {e}" if e.status_code else f"[API Error] {e}"
+                )
+                return f"[API Error] {e.status_code}: {e}" if e.status_code else f"[API Error] {e}"
 
-            return await self._process_stream(response, max_turns=max_turns, turn=turn, response_format=response_format)
+            return await self._process_stream(stream, max_turns=max_turns, turn=turn, response_format=response_format)
 
         # No tool calls — final answer
         final_message = {"role": "assistant", "content": collected_content}

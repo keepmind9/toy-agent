@@ -10,6 +10,7 @@ from toy_agent.agent import (
     Agent,
     _pydantic_to_response_format,
 )
+from toy_agent.llm.types import StreamChunk
 
 # --- Test models ---
 
@@ -33,31 +34,18 @@ class UserProfile(BaseModel):
 
 
 def _make_text_response(text="done"):
-    """Create a mock response with plain text (no tool_calls)."""
-    message = MagicMock()
-    message.tool_calls = None
-    message.content = text
-    return message
+    """Create a mock ChatResponse with plain text (no tool_calls)."""
+    mock = MagicMock()
+    mock.content = text
+    mock.tool_calls = None
+    mock.usage = None
+    return mock
 
 
 def _make_stream_chunks(text: str):
-    """Create mock stream chunks that form the given text."""
-
-    class Delta:
-        def __init__(self, content=None, tool_calls=None):
-            self.content = content
-            self.tool_calls = tool_calls
-
-    class Choice:
-        def __init__(self, delta):
-            self.delta = delta
-
-    class Chunk:
-        def __init__(self, choice):
-            self.choices = [choice]
-
-    chunks = [Chunk(Choice(Delta(content=char))) for char in text]
-    chunks.append(Chunk(Choice(Delta())))  # final empty chunk
+    """Create StreamChunk objects that form the given text."""
+    chunks = [StreamChunk(delta_content=char, delta_tool_calls=None) for char in text]
+    chunks.append(StreamChunk(delta_content=None, delta_tool_calls=None))  # final empty chunk
     return chunks
 
 
@@ -122,7 +110,7 @@ class TestStructuredOutput:
         client = MagicMock()
         json_str = '{"name": "Alice", "age": 30}'
         response = _make_text_response(json_str)
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         result = await agent.run("Extract info", response_format=UserInfo)
@@ -136,21 +124,22 @@ class TestStructuredOutput:
         """When response_format is set, tools are not passed to the API."""
         client = MagicMock()
         response = _make_text_response('{"name": "Bob", "age": 25}')
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         await agent.run("Extract", response_format=UserInfo)
 
-        call_kwargs = client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["tools"] is None
-        assert "response_format" in call_kwargs
+        call_args = client.chat.call_args
+        request = call_args[0][0]  # ChatRequest passed as positional arg
+        assert request.tools is None
+        assert request.response_format is not None
 
     @pytest.mark.anyio
     async def test_without_response_format_returns_str(self):
         """Without response_format, run() still returns str (backward compat)."""
         client = MagicMock()
         response = _make_text_response("hello world")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         result = await agent.run("hi")
@@ -164,7 +153,7 @@ class TestStructuredOutput:
         client = MagicMock()
         json_str = '{"name": "Charlie", "age": 40}'
         chunks = _make_stream_chunks(json_str)
-        client.chat.completions.create.return_value = chunks
+        client.chat_stream.return_value = iter(chunks)
 
         agent = Agent(client=client, stream=True)
         result = await agent.run("Extract", response_format=UserInfo)
@@ -178,7 +167,7 @@ class TestStructuredOutput:
         """Malformed JSON falls back to returning raw string with a warning."""
         client = MagicMock()
         response = _make_text_response("not valid json")
-        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=response)])
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         with pytest.warns(UserWarning, match="Structured output parse failed"):
