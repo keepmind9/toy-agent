@@ -69,6 +69,18 @@ def _parse_structured_output(raw: str, model: type[BaseModel]) -> BaseModel | st
         return raw
 
 
+def _usage_dict(response) -> dict | None:
+    """Extract token usage from an API response as a plain dict."""
+    u = getattr(response, "usage", None)
+    if u is None:
+        return None
+    return {
+        "prompt_tokens": getattr(u, "prompt_tokens", 0),
+        "completion_tokens": getattr(u, "completion_tokens", 0),
+        "total_tokens": getattr(u, "total_tokens", 0),
+    }
+
+
 class Agent:
     def __init__(
         self,
@@ -245,7 +257,7 @@ class Agent:
                         for tc in message.tool_calls
                     ],
                 }
-                self._emit("on_llm_response", message=assistant_msg)
+                self._emit("on_llm_response", message=assistant_msg, usage=_usage_dict(response))
                 self.messages.append(assistant_msg)
                 self._emit("on_message", role="assistant", content=message.content or "")
 
@@ -266,7 +278,12 @@ class Agent:
 
             self.messages.append({"role": "assistant", "content": message.content})
             self._emit("on_message", role="assistant", content=message.content)
-            self._emit("on_llm_response", message={"role": "assistant", "content": message.content})
+            usage = _usage_dict(response)
+            self._emit(
+                "on_llm_response",
+                message={"role": "assistant", "content": message.content},
+                usage=usage,
+            )
             if self.memory:
                 self.memory.save(self.messages)
             if response_format:
@@ -372,7 +389,7 @@ class Agent:
                 ],
             }
             self.messages.append(message_dict)
-            self._emit("on_llm_response", message=message_dict)
+            self._emit("on_llm_response", message=message_dict, usage=None)
             self._emit("on_message", role="assistant", content=collected_content or "")
 
             for tc in tool_calls_data.values():
@@ -409,7 +426,7 @@ class Agent:
 
         # No tool calls — final answer
         final_message = {"role": "assistant", "content": collected_content}
-        self._emit("on_llm_response", message=final_message)
+        self._emit("on_llm_response", message=final_message, usage=None)
         self.messages.append(final_message)
         self._emit("on_message", role="assistant", content=collected_content)
         if self.memory:

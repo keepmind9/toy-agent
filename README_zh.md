@@ -18,6 +18,7 @@ toy-agent/
 │   ├── memory.py               # 会话持久化
 │   ├── planning.py             # PlanHook + ReActPlanHook (任务规划)
 │   ├── guardrails.py           # GuardrailHook (人工审批)
+│   ├── cost.py                 # CostTracker（token 用量 + 费用）
 │   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
 │   ├── skills.py              # Skills 加载器
 │   ├── subagent.py            # SubAgentTool（Tool-call 模式）
@@ -46,6 +47,7 @@ toy-agent/
 │   ├── test_orchestrator_router.py      # Router 测试
 │   ├── test_orchestrator_sequential.py  # Sequential 测试
 │   └── test_orchestrator_parallel.py    # Parallel 测试
+│   └── test_cost.py                     # CostTracker 测试
 ├── .env.example
 ├── Makefile
 └── pyproject.toml
@@ -478,6 +480,39 @@ result = await parallel.run("implement a sorting algorithm")
 ```
 
 核心概念：**`asyncio.gather` 并发 + 可选 LLM 汇总** — 多个视角合为一个答案。
+
+## Phase 15: Cost / Token Tracking（费用追踪）
+
+通过 Hook 从每次 LLM 响应中提取 token 用量，累计计算费用。零额外 API 调用。
+
+```python
+from toy_agent.cost import CostTracker
+
+tracker = CostTracker(model="gpt-4o-mini")
+agent = Agent(client=client, hooks=[ConsoleHook(), tracker])
+
+await agent.run("explain quantum computing")
+await agent.run("write a sorting algorithm")
+
+print(tracker.summary())
+# [cost] tokens: 1,234 (prompt: 800, completion: 434) | cost: $0.0038
+```
+
+**内置模型定价**（每 1K token，输入/输出）：
+
+| 模型 | 输入 | 输出 |
+|------|------|------|
+| gpt-4o-mini | $0.00015 | $0.0006 |
+| gpt-4o | $0.0025 | $0.01 |
+| gpt-4-turbo | $0.01 | $0.03 |
+| gpt-3.5-turbo | $0.0005 | $0.0015 |
+
+自定义定价：
+```python
+tracker = CostTracker(model="my-model", price_per_1k=(0.001, 0.002))
+```
+
+核心概念：**Usage 数据通过 Hook 系统流转** — `on_llm_response` 现在包含 `usage` 字典，`CostTracker` 累计它。Agent 逻辑仅需透传 usage。
 
 ## 快速开始
 

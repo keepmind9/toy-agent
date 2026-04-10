@@ -26,7 +26,7 @@ class AgentHook(ABC):
         """Called just before sending a request to the LLM API."""
         ...
 
-    def on_llm_response(self, *, message: dict) -> None:
+    def on_llm_response(self, *, message: dict, usage: dict | None = None) -> None:
         """Called after receiving an LLM response (before tool processing)."""
         ...
 

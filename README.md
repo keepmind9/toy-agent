@@ -18,6 +18,7 @@ toy-agent/
 │   ├── memory.py               # Session persistence
 │   ├── planning.py             # PlanHook + ReActPlanHook (task planning)
 │   ├── guardrails.py           # GuardrailHook (human-in-the-loop approval)
+│   ├── cost.py                 # CostTracker (token usage + cost)
 │   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
 │   ├── skills.py              # Skills loader
 │   ├── subagent.py            # SubAgentTool (tool-call pattern)
@@ -46,6 +47,7 @@ toy-agent/
 │   ├── test_orchestrator_router.py      # Router tests
 │   ├── test_orchestrator_sequential.py  # Sequential tests
 │   └── test_orchestrator_parallel.py    # Parallel tests
+│   └── test_cost.py                     # CostTracker tests
 ├── .env.example
 ├── Makefile
 └── pyproject.toml
@@ -478,6 +480,39 @@ result = await parallel.run("implement a sorting algorithm")
 ```
 
 Key concept: **`asyncio.gather` concurrency + optional LLM aggregation** — multiple perspectives combined into one answer.
+
+## Phase 15: Cost / Token Tracking
+
+Track token usage and cost across an agent session via a Hook that extracts usage data from every LLM response. Zero extra API calls.
+
+```python
+from toy_agent.cost import CostTracker
+
+tracker = CostTracker(model="gpt-4o-mini")
+agent = Agent(client=client, hooks=[ConsoleHook(), tracker])
+
+await agent.run("explain quantum computing")
+await agent.run("write a sorting algorithm")
+
+print(tracker.summary())
+# [cost] tokens: 1,234 (prompt: 800, completion: 434) | cost: $0.0038
+```
+
+**Built-in model pricing** (per 1K tokens, input/output):
+
+| Model | Input | Output |
+|-------|-------|--------|
+| gpt-4o-mini | $0.00015 | $0.0006 |
+| gpt-4o | $0.0025 | $0.01 |
+| gpt-4-turbo | $0.01 | $0.03 |
+| gpt-3.5-turbo | $0.0005 | $0.0015 |
+
+Custom pricing for other models:
+```python
+tracker = CostTracker(model="my-model", price_per_1k=(0.001, 0.002))
+```
+
+Key concept: **Usage data flows through the Hook system** — `on_llm_response` now includes a `usage` dict, and `CostTracker` accumulates it. No Agent logic changes needed beyond passing usage through.
 
 ## Getting Started
 
