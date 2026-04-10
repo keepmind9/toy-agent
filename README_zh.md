@@ -1,6 +1,6 @@
 # toy-agent
 
-一个用于学习 Agent 核心原理的最小化 Agent 实现。Python + OpenAI SDK。
+一个用于学习 Agent 核心原理的最小化 Agent 实现。支持多 LLM Provider，通过统一适配器接口接入。
 
 [English](README.md)
 
@@ -13,41 +13,55 @@ toy-agent/
 │   ├── agent.py                # Agent loop 核心
 │   ├── config.py               # 多级配置加载
 │   ├── context.py              # ContextCompressor + HermesContextCompressor
-│   ├── hooks.py               # AgentHook 观测系统
+│   ├── hooks.py                # AgentHook 观测系统
 │   ├── mcp.py                  # MCP 客户端 (stdio + SSE)
 │   ├── memory.py               # 会话持久化
 │   ├── planning.py             # PlanHook + ReActPlanHook (任务规划)
 │   ├── guardrails.py           # GuardrailHook (人工审批)
 │   ├── cost.py                 # CostTracker（token 用量 + 费用）
 │   ├── retriever.py            # RAG: Document, TextSplitter, BaseRetriever, BM25Retriever
-│   ├── skills.py              # Skills 加载器
-│   ├── subagent.py            # SubAgentTool（Tool-call 模式）
-│   ├── orchestrator/
-│   │   ├── __init__.py         # AgentDef + re-exports
-│   │   ├── router.py           # RouterOrchestrator（LLM 路由）
-│   │   ├── sequential.py       # SequentialOrchestrator（流水线）
-│   │   └── parallel.py         # ParallelOrchestrator（并发）
+│   ├── skills.py                # Skills 加载器
+│   ├── subagent.py              # SubAgentTool（Tool-call 模式）
+│   ├── llm/                   # 多 Provider LLM 抽象层
+│   │   ├── __init__.py         # create_llm_client() 工厂函数
+│   │   ├── protocol.py         # LLMProtocol（接口定义）
+│   │   ├── base.py            # BaseAdapter ABC（模板方法）
+│   │   ├── types.py            # ChatRequest, ChatResponse, StreamChunk 等统一类型
+│   │   ├── openai_adapter.py   # OpenAI 适配器
+│   │   ├── anthropic_adapter.py # Anthropic/Claude 适配器
+│   │   └── google_adapter.py    # Google/Gemini 适配器
+│   └── orchestrator/
+│       ├── __init__.py         # AgentDef + re-exports
+│       ├── router.py           # RouterOrchestrator（LLM 路由）
+│       ├── sequential.py        # SequentialOrchestrator（流水线）
+│       └── parallel.py          # ParallelOrchestrator（并发）
 │   └── tools/
 │       ├── __init__.py          # @tool 装饰器 + 自动注册
 │       ├── file_ops.py          # read_file, write_file, edit_file
 │       └── run_bash.py          # run_bash (带安全检查)
 ├── tests/
+│   ├── conftest.py              # 共享 pytest fixtures（mock tiktoken encoding）
 │   ├── mcp_stdio_server.py      # stdio MCP 测试服务器
 │   ├── mcp_sse_server.py        # SSE MCP 测试服务器
 │   ├── test_agent.py             # Agent 单元测试
 │   ├── test_context.py           # ContextCompressor 测试
-│   ├── test_hooks.py             # Hook 系统测试
-│   ├── test_planning.py          # Planning 测试
+│   ├── test_cost.py            # CostTracker 测试
 │   ├── test_guardrails.py        # Guardrails 测试
+│   ├── test_hooks.py             # Hook 系统测试
+│   ├── test_llm_base.py         # BaseAdapter 测试
+│   ├── test_llm_factory.py       # create_llm_client() 工厂测试
 │   ├── test_memory.py            # SessionMemory 测试
+│   ├── test_openai_adapter.py    # OpenAI 适配器测试
+│   ├── test_anthropic_adapter.py # Anthropic 适配器测试
+│   ├── test_google_adapter.py    # Google 适配器测试
+│   ├── test_orchestrator_router.py      # Router 测试
+│   ├── test_orchestrator_sequential.py  # Sequential 测试
+│   ├── test_orchestrator_parallel.py    # Parallel 测试
+│   ├── test_planning.py          # Planning 测试
 │   ├── test_retriever.py         # RAG 检索器测试
 │   ├── test_skills.py           # Skills 加载器测试
 │   ├── test_structured_output.py # 结构化输出测试
 │   └── test_subagent.py         # SubAgentTool 测试
-│   ├── test_orchestrator_router.py      # Router 测试
-│   ├── test_orchestrator_sequential.py  # Sequential 测试
-│   └── test_orchestrator_parallel.py    # Parallel 测试
-│   └── test_cost.py                     # CostTracker 测试
 ├── .env.example
 ├── Makefile
 └── pyproject.toml
@@ -63,6 +77,29 @@ toy-agent/
 4. 无 `tool_calls` → LLM 给出最终回答，退出循环
 
 API 错误会被捕获并展示给用户，不会导致程序崩溃。
+
+## Phase 1b: 多 Provider LLM
+
+统一的 LLM 抽象层（`toy_agent/llm/`）让 Agent 可以接入任意 Provider，通过公共接口工作。`LLMProtocol` 定义契约，`BaseAdapter` 提供公共脚手架。
+
+**架构：**
+
+```
+toy_agent/llm/
+├── protocol.py        LLMProtocol — 接口（chat, chat_stream）
+├── base.py           BaseAdapter — 模板方法，每个适配器实现 5 个抽象方法
+├── types.py          ChatRequest, ChatResponse, StreamChunk, ToolCall 等统一类型
+├── openai_adapter.py  OpenAI 适配器（openai SDK）
+├── anthropic_adapter.py  Anthropic 适配器（anthropic SDK，懒加载）
+└── google_adapter.py    Gemini 适配器（google-genai SDK，懒加载）
+```
+
+**设计目标：**
+- **Protocol + BaseAdapter** — 适配器实现 5 个抽象方法，公共逻辑放在 BaseAdapter
+- **懒加载导入** — Anthropic 和 Google SDK 按需导入；SDK 未安装时给出清晰提示
+- **统一类型** — `ChatRequest` / `ChatResponse` / `StreamChunk` 与 Provider 无关
+- **流式支持** — `chat_stream()` 返回 `Iterator[StreamChunk]`，不因 Provider 而异
+- **向后兼容** — `LLM_PROVIDER` 未设置时默认 OpenAI
 
 ## Phase 2: Tools
 
@@ -506,6 +543,11 @@ print(tracker.summary())
 | gpt-4o | $0.0025 | $0.01 |
 | gpt-4-turbo | $0.01 | $0.03 |
 | gpt-3.5-turbo | $0.0005 | $0.0015 |
+| claude-sonnet-4-20250514 | $0.003 | $0.015 |
+| claude-opus-4-20250514 | $0.015 | $0.075 |
+| claude-haiku-4-5-20251001 | $0.0008 | $0.004 |
+| gemini-2.0-flash | $0.0001 | $0.0004 |
+| gemini-2.5-pro | $0.00125 | $0.01 |
 
 自定义定价：
 ```python
@@ -522,7 +564,8 @@ uv sync
 
 # 配置 API
 cp .env.example .env
-# 编辑 .env 填入 OPENAI_API_KEY
+# 编辑 .env — 支持 OpenAI、Anthropic 和 Google Gemini
+# 通过 LLM_PROVIDER 选择 Provider（默认：openai）
 
 # 配置 MCP 服务器（可选）
 mkdir -p .toy-agent
@@ -531,6 +574,37 @@ mkdir -p .toy-agent
 # 运行
 make run
 ```
+
+### 多 Provider LLM
+
+`toy_agent/llm/` 提供统一接口接入 OpenAI、Anthropic 和 Google Gemini。用 `create_llm_client()` 根据环境变量实例化对应适配器：
+
+```python
+from toy_agent.llm import create_llm_client
+
+# 读取 LLM_PROVIDER、LLM_MODEL 及各 Provider 相关环境变量
+client = create_llm_client()
+
+# 或直接实例化
+from toy_agent.llm import OpenAIAdapter, AnthropicAdapter, GeminiAdapter
+
+client = OpenAIAdapter(api_key="sk-...", model="gpt-4o-mini")
+client = AnthropicAdapter(api_key="sk-ant-...", model="claude-sonnet-4-20250514")
+client = GeminiAdapter(api_key="...", model="gemini-2.0-flash")
+```
+
+**环境变量：**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `LLM_PROVIDER` | Provider 名称（`openai`、`anthropic`、`gemini`） | `openai` |
+| `LLM_MODEL` | 模型名称 | Provider 默认 |
+| `OPENAI_API_KEY` | OpenAI API Key | — |
+| `OPENAI_BASE_URL` | OpenAI Base URL（用于代理） | `https://api.openai.com/v1` |
+| `ANTHROPIC_API_KEY` | Anthropic API Key | — |
+| `GEMINI_API_KEY` | Google Gemini API Key | — |
+
+安装可选依赖：`uv sync --extra anthropic` 或 `uv sync --extra gemini`。
 
 ## Make 命令
 
