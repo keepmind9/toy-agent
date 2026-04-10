@@ -68,7 +68,14 @@ class ContextCompressor:
         self.model = model
         self.token_limit = token_limit
         self._cooldown = False
-        self._encoding = _get_encoding(model)
+        self.__encoding = None  # lazy: populated on first use
+
+    @property
+    def _encoding(self):
+        """Lazily initialize tiktoken encoding to avoid blocking __init__."""
+        if self.__encoding is None:
+            self.__encoding = _get_encoding(self.model)
+        return self.__encoding
 
     def count_tokens(self, messages: list[dict]) -> int:
         return count_tokens(messages, self._encoding)
@@ -267,8 +274,15 @@ class HermesContextCompressor:
         self.token_limit = token_limit
         self.tail_ratio = tail_ratio
         self.protect_head = protect_head
-        self._encoding = _get_encoding(model)
+        self.__encoding = None  # lazy: populated on first use
         self._previous_summary: str | None = None
+
+    @property
+    def _encoding(self):
+        """Lazily initialize tiktoken encoding to avoid blocking __init__."""
+        if self.__encoding is None:
+            self.__encoding = _get_encoding(self.model)
+        return self.__encoding
 
     def count_tokens(self, messages: list[dict]) -> int:
         return count_tokens(messages, self._encoding)

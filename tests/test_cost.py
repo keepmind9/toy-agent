@@ -80,8 +80,14 @@ class TestCostTrackerWithAgent:
         """CostTracker receives usage data when wired into an Agent."""
         client = MagicMock()
 
-        response = _make_response_with_usage(prompt=100, completion=50)
-        client.chat.completions.create.return_value = response
+        response = MagicMock()
+        response.content = "test response"
+        response.tool_calls = None
+        response.usage = MagicMock()
+        response.usage.prompt_tokens = 100
+        response.usage.completion_tokens = 50
+        response.usage.total_tokens = 150
+        client.chat.return_value = response
 
         tracker = CostTracker(model="gpt-4o-mini")
         agent = Agent(client=client, hooks=[tracker])

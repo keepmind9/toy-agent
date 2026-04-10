@@ -119,17 +119,17 @@ class TestAgentRetrieverIntegration:
 
         client = MagicMock()
         response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.tool_calls = None
-        response.choices[0].message.content = "Python is a programming language"
-        client.chat.completions.create.return_value = response
+        response.content = "Python is a programming language"
+        response.tool_calls = None
+        response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        client.chat.return_value = response
 
         agent = Agent(client=client, retriever=retriever)
         await agent.run("What is Python?")
 
         # Verify the RAG context message was injected before the LLM call
-        call_kwargs = client.chat.completions.create.call_args.kwargs
-        messages = call_kwargs["messages"]
+        call_args = client.chat.call_args
+        messages = call_args[0][0].messages
         rag_messages = [m for m in messages if m.get("content", "").startswith("[Retrieved context]")]
         assert len(rag_messages) == 1
         assert "Python" in rag_messages[0]["content"]
@@ -143,15 +143,15 @@ class TestAgentRetrieverIntegration:
 
         client = MagicMock()
         response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.tool_calls = None
-        response.choices[0].message.content = "Hello"
-        client.chat.completions.create.return_value = response
+        response.content = "Hello"
+        response.tool_calls = None
+        response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        client.chat.return_value = response
 
         agent = Agent(client=client)
         await agent.run("hi")
 
-        call_kwargs = client.chat.completions.create.call_args.kwargs
-        messages = call_kwargs["messages"]
+        call_args = client.chat.call_args
+        messages = call_args[0][0].messages
         rag_messages = [m for m in messages if m.get("content", "").startswith("[Retrieved context]")]
         assert len(rag_messages) == 0

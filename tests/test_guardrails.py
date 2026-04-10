@@ -10,23 +10,25 @@ from toy_agent.hooks import AgentHook, ConsoleHook
 
 
 def _make_tool_call_response(fn_name="test_tool", fn_args="{}"):
-    """Create a mock LLM response with a tool call."""
-    func_mock = MagicMock()
-    func_mock.name = fn_name
-    func_mock.arguments = fn_args
-    tc_mock = MagicMock(id="tc_1", function=func_mock)
-    msg = MagicMock()
-    msg.content = None
-    msg.tool_calls = [tc_mock]
-    return msg
+    """Create a mock ChatResponse with a tool call."""
+    response = MagicMock()
+    response.content = None
+    tc = MagicMock()
+    tc.id = "tc_1"
+    tc.name = fn_name
+    tc.arguments = fn_args
+    response.tool_calls = [tc]
+    response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    return response
 
 
 def _make_text_response(text="done"):
-    """Create a mock LLM response with text only."""
-    msg = MagicMock()
-    msg.content = text
-    msg.tool_calls = None
-    return msg
+    """Create a mock ChatResponse with text only."""
+    response = MagicMock()
+    response.content = text
+    response.tool_calls = None
+    response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    return response
 
 
 class TestAgentHookGuardrailMethods:
@@ -48,11 +50,9 @@ class TestCheckGuardrails:
     async def test_allows_when_no_hooks_block(self):
         """No guardrail hooks -> tool executes normally."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response()
-        text_msg = _make_text_response()
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
+        client.chat.side_effect = [
+            _make_tool_call_response(),
+            _make_text_response(),
         ]
 
         agent = Agent(client=client)
@@ -63,11 +63,9 @@ class TestCheckGuardrails:
     async def test_blocks_when_hook_returns_string(self):
         """Hook returning a string blocks tool execution."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response("run_bash", '{"command": "rm -rf /"}')
-        text_msg = _make_text_response("ok")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
+        client.chat.side_effect = [
+            _make_tool_call_response("run_bash", '{"command": "rm -rf /"}'),
+            _make_text_response("ok"),
         ]
 
         blocking_hook = MagicMock()
@@ -86,11 +84,9 @@ class TestCheckGuardrails:
     async def test_async_hook_supported(self):
         """Async on_tool_approve hooks are awaited properly."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response("run_bash")
-        text_msg = _make_text_response("ok")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
+        client.chat.side_effect = [
+            _make_tool_call_response("run_bash"),
+            _make_text_response("ok"),
         ]
 
         async def async_block(**kwargs):
@@ -151,11 +147,9 @@ class TestGuardrailIntegration:
     async def test_blocked_tool_returns_message_to_agent(self):
         """When tool is blocked, the blocked message is returned as tool result."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response("run_bash", '{"command": "rm -rf /"}')
-        text_msg = _make_text_response("I see the tool was blocked")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
+        client.chat.side_effect = [
+            _make_tool_call_response("run_bash", '{"command": "rm -rf /"}'),
+            _make_text_response("I see the tool was blocked"),
         ]
 
         with patch("builtins.input", return_value="n"):
@@ -173,11 +167,9 @@ class TestGuardrailIntegration:
     async def test_approved_tool_executes_normally(self):
         """When user approves, the tool executes normally."""
         client = MagicMock()
-        tool_msg = _make_tool_call_response("run_bash", '{"command": "ls"}')
-        text_msg = _make_text_response("here are the files")
-        client.chat.completions.create.side_effect = [
-            MagicMock(choices=[MagicMock(message=tool_msg)]),
-            MagicMock(choices=[MagicMock(message=text_msg)]),
+        client.chat.side_effect = [
+            _make_tool_call_response("run_bash", '{"command": "ls"}'),
+            _make_text_response("here are the files"),
         ]
 
         with patch("builtins.input", return_value="y"):
