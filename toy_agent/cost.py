@@ -16,10 +16,18 @@ from toy_agent.hooks import AgentHook
 
 # Prices per 1K tokens (input / output) in USD
 MODEL_PRICES: dict[str, tuple[float, float]] = {
+    # OpenAI
     "gpt-4o-mini": (0.00015, 0.0006),
     "gpt-4o": (0.0025, 0.01),
     "gpt-4-turbo": (0.01, 0.03),
     "gpt-3.5-turbo": (0.0005, 0.0015),
+    # Anthropic
+    "claude-sonnet-4-20250514": (0.003, 0.015),
+    "claude-opus-4-20250514": (0.015, 0.075),
+    "claude-haiku-4-5-20251001": (0.0008, 0.004),
+    # Google
+    "gemini-2.0-flash": (0.0001, 0.0004),
+    "gemini-2.5-pro": (0.00125, 0.01),
 }
 
 

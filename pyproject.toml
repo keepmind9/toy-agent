@@ -1,7 +1,7 @@
 [project]
 name = "toy-agent"
 version = "0.1.0"
-description = "A minimal agent implementation to learn agent fundamentals. Python + OpenAI SDK"
+description = "A minimal multi-provider agent framework supporting OpenAI, Claude, and Gemini."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -19,6 +19,10 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/keepmind9/toy-agent"
 Issues = "https://github.com/keepmind9/toy-agent/issues"
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40.0"]
+gemini = ["google-genai>=1.0.0"]
 
 [dependency-groups]
 dev = [
