@@ -1138,19 +1138,13 @@ name = "toy-agent"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "anthropic" },
+    { name = "google-genai" },
     { name = "mcp" },
     { name = "openai" },
     { name = "python-dotenv" },
     { name = "rank-bm25" },
     { name = "tiktoken" },
-]
-
-[package.optional-dependencies]
-anthropic = [
-    { name = "anthropic" },
-]
-gemini = [
-    { name = "google-genai" },
 ]
 
 [package.dev-dependencies]
@@ -1163,15 +1157,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40.0" },
-    { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0.0" },
+    { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "google-genai", specifier = ">=1.0.0" },
     { name = "mcp", specifier = ">=1.6.0" },
     { name = "openai", specifier = ">=2.30.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rank-bm25", specifier = ">=0.2.2" },
     { name = "tiktoken", specifier = ">=0.9.0" },
 ]
-provides-extras = ["anthropic", "gemini"]
 
 [package.metadata.requires-dev]
 dev = [

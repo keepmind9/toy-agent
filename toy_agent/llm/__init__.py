@@ -18,8 +18,8 @@ def create_llm_client(provider: str | None = None) -> LLMProtocol:
     Environment variables:
         LLM_PROVIDER: openai | anthropic | gemini (default: openai)
         OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL: for OpenAI
-        ANTHROPIC_API_KEY / ANTHROPIC_MODEL: for Anthropic
-        GOOGLE_API_KEY / GEMINI_MODEL: for Gemini
+        ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL: for Anthropic
+        GOOGLE_API_KEY / GEMINI_BASE_URL / GEMINI_MODEL: for Gemini
     """
     provider = provider or os.getenv("LLM_PROVIDER", "openai").lower()
 
@@ -44,6 +44,7 @@ def create_llm_client(provider: str | None = None) -> LLMProtocol:
         return AnthropicAdapter(
             api_key=api_key,
             model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+            base_url=os.getenv("ANTHROPIC_BASE_URL"),
         )
 
     if provider == "gemini":
@@ -55,6 +56,7 @@ def create_llm_client(provider: str | None = None) -> LLMProtocol:
         return GeminiAdapter(
             api_key=api_key,
             model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+            base_url=os.getenv("GEMINI_BASE_URL"),
         )
 
     raise ValueError(f"Unsupported provider: {provider}. Supported: openai, anthropic, gemini")

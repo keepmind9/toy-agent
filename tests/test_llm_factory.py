@@ -47,6 +47,20 @@ class TestFactoryAnthropic:
 
         assert isinstance(adapter, AnthropicAdapter)
 
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_API_KEY": "sk-ant-test",
+            "ANTHROPIC_BASE_URL": "https://custom-anthropic/v1",
+            "LLM_PROVIDER": "anthropic",
+        },
+    )
+    @patch("importlib.import_module")
+    def test_passes_base_url_to_anthropic(self, mock_import):
+        mock_import.return_value = MagicMock()
+        adapter = create_llm_client()
+        assert adapter._extra.get("base_url") == "https://custom-anthropic/v1"
+
 
 class TestFactoryGemini:
     @patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key", "LLM_PROVIDER": "gemini"})
@@ -57,6 +71,16 @@ class TestFactoryGemini:
         from toy_agent.llm.google_adapter import GeminiAdapter
 
         assert isinstance(adapter, GeminiAdapter)
+
+    @patch.dict(
+        os.environ,
+        {"GOOGLE_API_KEY": "test-key", "GEMINI_BASE_URL": "https://custom-gemini/v1", "LLM_PROVIDER": "gemini"},
+    )
+    @patch("importlib.import_module")
+    def test_passes_base_url_to_gemini(self, mock_import):
+        mock_import.return_value = MagicMock()
+        adapter = create_llm_client()
+        assert adapter._extra.get("base_url") == "https://custom-gemini/v1"
 
 
 class TestFactoryUnknown:

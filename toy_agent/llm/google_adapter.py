@@ -34,7 +34,10 @@ class GeminiAdapter(BaseAdapter):
 
     def _create_client(self) -> Any:
         genai = _import_genai()
-        return genai.Client(api_key=self.api_key)
+        kwargs: dict[str, Any] = {"api_key": self.api_key}
+        if base_url := self._extra.get("base_url"):
+            kwargs["http_options"] = {"base_url": base_url}
+        return genai.Client(**kwargs)
 
     def _split_messages(self, messages: list[dict]) -> tuple[str | None, list[dict]]:
         """Extract system message and return (system, remaining_messages)."""

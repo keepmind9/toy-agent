@@ -9,6 +9,8 @@ authors = [
     {name = "keepmind9"},
 ]
 dependencies = [
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
     "mcp>=1.6.0",
     "openai>=2.30.0",
     "python-dotenv>=1.0.0",
@@ -19,10 +21,6 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/keepmind9/toy-agent"
 Issues = "https://github.com/keepmind9/toy-agent/issues"
-
-[project.optional-dependencies]
-anthropic = ["anthropic>=0.40.0"]
-gemini = ["google-genai>=1.0.0"]
 
 [dependency-groups]
 dev = [
