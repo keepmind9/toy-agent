@@ -616,3 +616,7 @@ client = GeminiAdapter(api_key="...", model="gemini-2.0-flash")
 | `make lint` | 运行 ruff 代码检查 |
 | `make fmt` | 格式化代码 |
 | `make check` | 运行 lint + 格式检查 |
+
+## 致谢
+
+上下文压缩实现参考了 [Hermes Agent](https://github.com/nousresearch/hermes-agent)（[NousResearch](https://github.com/nousresearch)）。

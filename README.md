@@ -616,3 +616,7 @@ Install optional dependencies: `uv sync --extra anthropic` or `uv sync --extra g
 | `make lint` | Run ruff lint |
 | `make fmt` | Format code with ruff |
 | `make check` | Run lint + format check |
+
+## Acknowledgments
+
+The context compression implementation draws inspiration from [Hermes Agent](https://github.com/nousresearch/hermes-agent) by [NousResearch](https://github.com/nousresearch).
